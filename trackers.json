@@ -1,0 +1,13 @@
+[
+{"name": "public", "private": "False", "throttle": 1, "throttle_dl":300, "ratio": 0, "time": 120, "trackers": []},
+{"name": "torrentseeds", "private": "True", "throttle": 0, "throttle_dl":0, "ratio": 0, "time": 0, "trackers": ["torrentseeds"]},
+{"name": "theempire", "private": "True", "throttle": 0, "throttle_dl":0, "ratio": 0, "time": 0, "trackers": ["theempire.click"]},
+{"name": "IPT", "private": "True", "throttle": 1000, "throttle_dl":0, "ratio": 0, "time": 0, "trackers": ["stackoverflow"]},
+{"name": "TLZ", "private": "True", "throttle": 0, "throttle_dl":0, "ratio": 0, "time": 0, "trackers": ["tlz.digital"]},
+{"name": "avistaz", "private": "True", "throttle": 0, "throttle_dl":0, "ratio": 0, "time": 0, "trackers": ["avistaz"]},
+{"name": "cinemaz", "private": "True", "throttle": 0, "throttle_dl":0, "ratio": 0, "time": 0, "trackers": ["cinemaz"]},
+{"name": "hdarea", "private": "True", "throttle": 100, "throttle_dl":300, "ratio": 0, "time": 0, "trackers": ["hdarea"]},
+{"name": "torrenting", "private": "True", "throttle": 1, "throttle_dl":300, "ratio": 0, "time": 0, "trackers": ["tt.jumbo","t.connecting"]},
+{"name": "thegeeks", "private": "True", "throttle": 0, "throttle_dl":0, "ratio": 0, "time": 0, "trackers": ["thegeeks"]},
+{"name": "TheScenePlace", "private": "True", "throttle": 0, "throttle_dl":0, "ratio": 0, "time": 0, "trackers": ["thesceneplace"]}
+]
