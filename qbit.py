@@ -9,7 +9,7 @@ for k,v in qb.app.build_info.items(): print(f'{k}: {v}')
 torrents = qb.torrents_info()
 
 i = 0
-listOfFiles=[]
+listOfFiles={}
 
 
 with open("trackers.json", "r") as read_file:
@@ -18,7 +18,7 @@ with open("trackers.json", "r") as read_file:
 
 #print(trackers)
 for torrent in torrents:
-#    print (torrent)
+    print (torrent.name)
     i = i + 1
     private = False
     correctly_marked = False
@@ -28,16 +28,28 @@ for torrent in torrents:
     save_path = torrent['save_path']
 
     dupeFound = False
+    rarred = False
     for file in files:
-       filename=save_path+file['name']
-       if (filename in listOfFiles):
-           dupefound = True
-#          print (filename, "is in the list")
-       else:
-          listOfFiles.append(filename)
+       if (not save_path.endswith("/")):
+          save_path = save_path + "/"
 
-    if (dupeFound):
-       qb.torrents_add_tags("cross-seed", torrent['hash'])
+       filename=save_path+file['name']
+       print("    ", filename)
+
+       if (filename.endswith(".rar")):
+           rarred = True
+
+       if (listOfFiles.get(filename) != None):
+           qb.torrents_add_tags("cross-seed", torrent['hash'])
+           qb.torrents_add_tags("cross-seed", listOfFiles.get(filename))
+
+#           print (filename, "is a cross seed", torrent['hash'], listOfFiles.get(filename))
+           break
+       else:
+          listOfFiles[filename] = torrent['hash']
+
+    if (rarred):
+       qb.torrents_add_tags("RARRED", torrent['hash'])
 
     for tracker in trackers:
        if (tracker['msg'].__contains__("private")):
