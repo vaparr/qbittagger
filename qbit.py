@@ -1,28 +1,38 @@
+import qbittorrentapi
 import json
 import sys
+import getopt
+from datetime import datetime
+from datetime import timedelta
 from collections import defaultdict
-from datetime import datetime, timedelta
-
-import qbittorrentapi
-
-qb = qbittorrentapi.Client(host='192.168.1.62', port=8080)
-# display qBittorrent info
-print(f'qBittorrent: {qb.app.version}')
-for k, v in qb.app.build_info.items():
-    print(f'{k}: {v}')
-
-
-opts = [opt for opt in sys.argv[1:] if opt.startswith("-")]
-args = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
 
 findDeleted = False
 
-if ("-d" in opts):
-    findDeleted = True
+host = '192.168.1.62'
+
+try:
+    opts, args = getopt.getopt(sys.argv[1:], "dh:")
+except getopt.GetoptError:
+    print("Invalid Command Line")
+    sys.exit(2)
+for opt, arg in opts:
+    if (opt == '-h'):
+        host = arg
+    if (opt == '-d'):
+        findDeleted = True
+
+if (findDeleted == True):
     print("Will Find torrents ready to delete")
 else:
     print("Will not find forrents ready to delete. Use -d for a full scan")
 
+
+print("Connecting to:", host)
+qb = qbittorrentapi.Client(host=host, port=8080)
+# display qBittorrent info
+print(f'qBittorrent: {qb.app.version}')
+for k, v in qb.app.build_info.items():
+    print(f'{k}: {v}')
 
 torrents = qb.torrents_info()
 
@@ -55,10 +65,9 @@ if (findDeleted == True):
         if (rarred):
             qb.torrents_add_tags("RARRED", torrent['hash'])
 
-
 # print(trackers)
 for torrent in torrents:
-    #    print (torrent.name)
+    #    print (torrent)
     i = i + 1
     private = False
     correctly_marked = False
@@ -77,9 +86,9 @@ for torrent in torrents:
 
             filename = save_path+file.name
             for hash in firstFileDict[filename]:
-                print(filename, "has hash", hash)
+                #           print (filename, "has hash", hash)
                 if (hash != torrent['hash']):
-                    print(torrent.name, "Is cross-seeded")
+                    #                print (torrent.name,"Is cross-seeded")
                     crossSeeded = True
                     break
 
@@ -102,18 +111,20 @@ for torrent in torrents:
             #print (tracker_entry)
             for tracker_url in tracker_entry['trackers']:
                 if (tracker['url'].__contains__(tracker_url)):
-                    if (findDeleted == True):
+                    if (findDeleted == True and torrent['force_start'] == False):
                         torrentcompleted = datetime.fromtimestamp(
                             torrent['completion_on'])
-                        print("completed on", torrentcompleted)
+        #                print ("completed on", torrentcompleted)
                         torrentthreshold = torrentcompleted + \
                             timedelta(days=tracker_entry['delete'])
                         if ((datetime.now() > torrentthreshold and tracker_entry['delete'] != 0 and torrent['completion_on'] > 1000000000) or (tracker['msg'].__contains__("Unregistered"))):
-                            print("torrent is too old removing hash", torrent['hash'], "for file", filename,
-                                  "from deletelist because tracker_entry delete is", tracker_entry['delete'])
-                            for file in files:
-                                filename = save_path+file.name
-                                deletelist[filename].remove(torrent['hash'])
+                            if (torrent['num_complete'] > 1 or private == False):
+                                print("torrent is too old removing hash", torrent['hash'], "for file", filename,
+                                      "from deletelist because tracker_entry delete is", tracker_entry['delete'])
+                                for file in files:
+                                    filename = save_path+file.name
+                                    deletelist[filename].remove(
+                                        torrent['hash'])
 
                     qb.torrents_add_tags(
                         tracker_entry['name'], torrent['hash'])
@@ -189,4 +200,3 @@ if (findDeleted == True):
 
 
 print("Processed ", i, " torrents")
-
