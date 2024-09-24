@@ -73,7 +73,6 @@ for torrent in torrents:
     correctly_marked = False
 
     trackers = qb.torrents_trackers(torrent['hash'])
-
     files = qb.torrents_files(torrent['hash'])
     save_path = torrent['save_path']
     if (not save_path.endswith("/")):
@@ -81,6 +80,9 @@ for torrent in torrents:
 
     dupeFound = False
     crossSeeded = False
+    unregistered = False
+
+
     if (findDeleted == True):
        for file in files:
 
@@ -109,6 +111,44 @@ for torrent in torrents:
        if (tracker['msg'].__contains__("Not Found")):
            qb.torrents_add_tags("unregistered", torrent['hash'])
 
+       if (tracker['msg'].__contains__("not registered")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+       if (tracker['msg'].__contains__("pack out")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+       if (tracker['msg'].__contains__("Complete Season")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+       if (tracker['msg'].__contains__("Dupe of")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+       if (tracker['msg'].__contains__("beyond-hd.me")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+       if (tracker['msg'].__contains__("InfoHash not found")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+       if (tracker['msg'].__contains__("Tracker Inactive")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+       if (tracker['msg'].__contains__("Invalid InfoHash")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+       if (tracker['msg'].__contains__("unregistered torrent")):
+           qb.torrents_add_tags("unregistered", torrent['hash'])
+
+    tags = torrent['tags'].split(',')
+
+    for tag in tags:
+       if (tag == 'autobrr'):
+          torrentcompleted = datetime.fromtimestamp(torrent['completion_on'])
+          torrentthreshold = torrentcompleted + timedelta(days=20)
+          if ( (datetime.now() > torrentthreshold and torrent['completion_on'] >1000000000 )):
+             qb.torrents_add_tags("delete", torrent['hash'])
+       if (tag == 'unregistered'):
+          unregistered = True
+
        for tracker_entry in trackers_list:
            done = False
            #print (tracker_entry)
@@ -118,14 +158,14 @@ for torrent in torrents:
                       torrentcompleted = datetime.fromtimestamp(torrent['completion_on'])
       #                print ("completed on", torrentcompleted)
                       torrentthreshold = torrentcompleted + timedelta(days=tracker_entry['delete'])
-                      if ( (datetime.now() > torrentthreshold and tracker_entry['delete'] != 0 and torrent['completion_on'] >1000000000 ) or ( tracker['msg'].__contains__("Unregistered") ) ):
+                      if ( (datetime.now() > torrentthreshold and tracker_entry['delete'] != 0 and torrent['completion_on'] >1000000000 ) or ( unregistered == True ) ):
                           if (torrent['num_complete'] > 1 or private == False):
                              print ("torrent is too old removing hash",torrent['hash'],"for file", filename, "from deletelist because tracker_entry delete is", tracker_entry['delete'])
                              for file in files:
                                  filename=save_path+file.name
                                  deletelist[filename].remove(torrent['hash'])
 
-                   qb.torrents_add_tags(tracker_entry['name'], torrent['hash'])                   
+                   qb.torrents_add_tags(tracker_entry['name'], torrent['hash'])
                    if (torrent['amount_left'] == 0 or torrent['dlspeed'] == 0):
                        if (tracker_entry['throttle'] > 0):
                            qb.torrents_set_upload_limit(tracker_entry['throttle'] * 1024, torrent['hash'])
@@ -138,7 +178,7 @@ for torrent in torrents:
                            print("setting ", torrent['name']," to ",tracker_entry['throttle_dl']*1024," bps upload -- [DL]", tracker_url)
                        else:
                            qb.torrents_set_upload_limit(-1, torrent['hash'])
-                       
+
                    if (tracker_entry['private'] == "True"):
                        private = True
                    if (tracker_entry['private'] == "False"):
@@ -173,7 +213,7 @@ for torrent in torrents:
                        print("setting ", torrent['name']," to ",tracker_entry['throttle']*1024," bps upload -- ", torrent['tracker'])
                    else:
                        qb.torrents_set_upload_limit(-1, torrent['hash'])
-               else:           
+               else:
                    if (tracker_entry['throttle_dl'] > 0):
                        qb.torrents_set_upload_limit(tracker_entry['throttle_dl'] * 1024, torrent['hash'])
                        print("setting ", torrent['name']," to ",tracker_entry['throttle_dl']*1024," bps upload -- ", torrent['tracker'])
@@ -189,8 +229,7 @@ if (findDeleted == True):
            print (name,"is Deletable")
            for item in firstFileDict[name]:
               qb.torrents_add_tags("delete", item)
-          
-           
+
+
 
 print ("Processed ", i, " torrents")
-
