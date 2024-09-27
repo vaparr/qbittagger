@@ -135,6 +135,7 @@ venv.bak/
 # Local settings
 trackers.json
 qb-dev.py
+torrentinfo_sample.txt
 
 # Spyder project settings
 .spyderproject

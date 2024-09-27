@@ -43,6 +43,7 @@ class TorrentInfo:
         self.torrent_dict = torrent_dict
         self.torrent_files = torrent_files
         self.torrent_trackers = torrent_trackers
+        self.torrent_trackers_filtered = list(filter(lambda tracker: tracker['tier'] >= 0, torrent_trackers))
 
         # torrent props
         self._hash = torrent_dict.hash
@@ -127,8 +128,13 @@ class TorrentInfo:
         self.is_season_pack = self.check_season_pack(self._name)
 
         # How many seeders? It's polite to seed if there's less seeders than polite value in config.
+        self.is_tracker_working = any(tracker.status == 2 for tracker in self.torrent_trackers_filtered)
         politeness = self.tracker_opts.get("polite", 0) if self.tracker_opts is not None else 0
         self.is_polite_to_seed = (self.torrent_dict["num_complete"] < politeness) if politeness > 0 else False
+        # self.is_polite_to_seed = True # Default to true to be safe
+        # if self.is_tracker_working:
+        #     politeness = self.tracker_opts.get("polite", 0) if self.tracker_opts is not None else 0
+        #     self.is_polite_to_seed = (self.torrent_dict["num_complete"] < politeness) if politeness > 0 else False
 
     def check_season_pack(self, torrent_name: str) -> bool:
         season_pack_patterns = [
@@ -203,21 +209,26 @@ class TorrentInfo:
 
     def to_str(self, include_extended=False):
         # List of attributes to exclude from dynamic formatting
-        excluded_attrs = {"torrent_dict", "torrent_files", "torrent_trackers"}
+        excluded_attrs = {"torrent_dict", "torrent_files", "torrent_trackers", "torrent_trackers_filtered"}
 
         # Retrieve all instance attributes and exclude the specified ones
         attrs = {key: value for key, value in vars(self).items() if key not in excluded_attrs}
 
         # Sort the attributes by key name and prepare the formatted output with both key and value
-        # str_attrs = "\n".join([f"\t{key} = {value}" for key, value in attrs.items()])
-        str_attrs = "\n".join([f"\t{key} = {value}" for key, value in sorted(attrs.items())])
+        str_attrs = "\n".join([f"    {key} = {value}" for key, value in sorted(attrs.items())])
 
-        # Special formatting for 'torrent_dict'
-        str_torrent_dict = str(self.torrent_dict).replace(", '", "\n\t\t, '").replace("TorrentDictionary({", "TorrentDictionary({\n\t\t").replace("})", "\n\t})\n")
+        # Formatting
+        str_torrent_dict = str(self.torrent_dict).replace("TorrentDictionary({", "TorrentDictionary({\n        ").replace(", '", ", \n        '").replace("})", "\n      }),")
+        str_torrent_trackers = str(self.torrent_trackers_filtered).replace("Tracker({", "\n        Tracker({").replace("})]","})\n      ],")
+        str_torrent_files = str(self.torrent_files).replace("TorrentFile({", "\n        TorrentFile({").replace("})]","})\n      ],")
+
+        # Redact magnet uri
+        magnet_reg = r"'magnet_uri': 'magnet:\?[^']+'"
+        str_torrent_dict = re.sub(magnet_reg, "'magnet_uri': '<redacted>'", str_torrent_dict)
 
         # Combine the dynamically generated attributes and the formatted torrent_dict
         if include_extended:
-            formatted_str = f"{str_attrs}\n\ttorrent_dict={str_torrent_dict}"
+            formatted_str = f"    torrent_trackers={str_torrent_trackers}\n    torrent_files={str_torrent_files}\n    torrent_dict={str_torrent_dict}\n{str_attrs}"
         else:
             formatted_str = f"{str_attrs}"
 
