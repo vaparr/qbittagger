@@ -128,13 +128,11 @@ class TorrentInfo:
         self.is_season_pack = self.check_season_pack(self._name)
 
         # How many seeders? It's polite to seed if there's less seeders than polite value in config.
-        self.is_tracker_working = any(tracker.status == 2 for tracker in self.torrent_trackers_filtered)
         politeness = self.tracker_opts.get("polite", 0) if self.tracker_opts is not None else 0
         self.is_polite_to_seed = (self.torrent_dict["num_complete"] < politeness) if politeness > 0 else False
-        # self.is_polite_to_seed = True # Default to true to be safe
-        # if self.is_tracker_working:
-        #     politeness = self.tracker_opts.get("polite", 0) if self.tracker_opts is not None else 0
-        #     self.is_polite_to_seed = (self.torrent_dict["num_complete"] < politeness) if politeness > 0 else False
+
+        # tracker error?
+        self.is_tracker_error = all(tracker.status == 4 for tracker in self.torrent_trackers_filtered)
 
     def check_season_pack(self, torrent_name: str) -> bool:
         season_pack_patterns = [
@@ -332,9 +330,17 @@ class TorrentManager:
         if torrent_info.tracker_name:
             torrent_info.torrent_add_tag(torrent_info.tracker_name)
 
-        # set unregistered
+        # unregistered
         if torrent_info.is_unregistered:
             torrent_info.torrent_add_tag("_unregistered")
+        else:
+            torrent_info.torrent_remove_tag("_unregistered")
+
+        # tracker error
+        if torrent_info.is_tracker_error and not torrent_info.is_unregistered:
+            torrent_info.torrent_add_tag("_tracker_error")
+        else:
+            torrent_info.torrent_remove_tag("_tracker_error")
 
         # rarred
         if torrent_info.is_rarred:
