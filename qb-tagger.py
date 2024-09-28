@@ -229,7 +229,7 @@ class TorrentInfo:
             magnet_reg = r"'magnet_uri': 'magnet:\?[^']+'"
             tracker_reg = r"('(?:tracker|url)': 'https?:\/\/[^?]+)(\?)"
             formatted_str = re.sub(magnet_reg, "'magnet_uri': '<redacted>'", formatted_str)
-            formatted_str = re.sub(tracker_reg + r".*", r"\1<redacted>'", formatted_str)
+            formatted_str = re.sub(tracker_reg + r".*", r"\1?<redacted>'", formatted_str)
         else:
             formatted_str = f"{str_attrs}"
 
