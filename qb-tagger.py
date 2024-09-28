@@ -440,7 +440,7 @@ class TorrentManager:
             # Set tracker delete days, default to 0 if None
             tracker_delete_days = torrent_info.tracker_opts.get("delete", 0)
             if torrent_info.is_autobrr_torrent:
-                tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", self.default_autobrr_delete_days)
+                tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or self.default_autobrr_delete_days
 
             # Only calculate if we have a valid completion timestamp and non-zero delete days
             if tracker_delete_days > 0 and torrent_info.torrent_dict["completion_on"] > 1000000000:
@@ -526,7 +526,7 @@ class TorrentManager:
         if not os.path.exists(tracker_json_path):
             print(f"ERROR: Unable to find '{tracker_json_path}'")
             exit(2)
-            
+
         with open(tracker_json_path, "r") as read_file:
             return json.load(read_file)
 
