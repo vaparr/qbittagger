@@ -221,13 +221,15 @@ class TorrentInfo:
         str_torrent_trackers = str(self.torrent_trackers_filtered).replace("Tracker({", "\n        Tracker({").replace("})]","})\n      ],")
         str_torrent_files = str(self.torrent_files).replace("TorrentFile({", "\n        TorrentFile({").replace("})]","})\n      ],")
 
-        # Redact magnet uri
-        magnet_reg = r"'magnet_uri': 'magnet:\?[^']+'"
-        str_torrent_dict = re.sub(magnet_reg, "'magnet_uri': '<redacted>'", str_torrent_dict)
-
         # Combine the dynamically generated attributes and the formatted torrent_dict
         if include_extended:
             formatted_str = f"    torrent_trackers={str_torrent_trackers}\n    torrent_files={str_torrent_files}\n    torrent_dict={str_torrent_dict}\n{str_attrs}"
+
+            # Redaction
+            magnet_reg = r"'magnet_uri': 'magnet:\?[^']+'"
+            tracker_reg = r"('(?:tracker|url)': 'https?:\/\/[^?]+)(\?)"
+            formatted_str = re.sub(magnet_reg, "'magnet_uri': '<redacted>'", formatted_str)
+            formatted_str = re.sub(tracker_reg + r".*", r"\1<redacted>'", formatted_str)
         else:
             formatted_str = f"{str_attrs}"
 
