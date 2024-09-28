@@ -3,6 +3,8 @@ import json
 import sys
 import argparse
 import re
+import yaml
+import os
 from datetime import datetime, timedelta
 from collections import defaultdict
 from enum import Enum, Flag, auto
@@ -241,11 +243,11 @@ class TorrentInfo:
 
 class TorrentManager:
 
-    def __init__(self, server, port, dry_run, no_color, tracker_json_path):
+    def __init__(self, config, dry_run, no_color, tracker_json_path):
 
         # args
-        self.server = server
-        self.port = port
+        self.server = config['server']
+        self.port = config['port']
         self.dry_run = dry_run
         self.no_color = no_color
 
@@ -255,10 +257,10 @@ class TorrentManager:
 
         # tracker config
         self.tracker_options = self.load_trackers(tracker_json_path)
-        self.default_autobrr_delete_days = 14  # days
+        self.default_autobrr_delete_days = config['default_autobrr_delete_days']  # days
 
         # connect to qb
-        self.qb = self.connect_to_qb(server, port)
+        self.qb = self.connect_to_qb(self.server, self.port)
 
         # process torrents and create list of TorrentInfo objects
         print(f"\n=== Phase 1: Getting a list of torrents from qBitTorrent... ")
@@ -504,9 +506,9 @@ class TorrentManager:
     def connect_to_qb(self, server, port) -> qbittorrentapi.Client:
         try:
             if self.no_color:
-                print(f"\nConnecting to: {server}")
+                print(f"\nConnecting to: {server}:{port}")
             else:
-                print(f"\nConnecting to: {Fore.GREEN}{server}{Fore.RESET}")
+                print(f"\nConnecting to: {Fore.GREEN}{server}:{port}{Fore.RESET}")
             qb = qbittorrentapi.Client(host=server, port=port)
             if self.no_color:
                 print(f"qBittorrent: {qb.app.version}")
@@ -579,8 +581,12 @@ class TorrentManager:
                 self.qb.torrents_set_upload_limit(upload_limit, torrent_hash)
         except:
             print(f"  Failed to set upload limit for {torrent_hash}")
-
-
+    
+def read_yaml(filename):
+    # Read the YAML file and return the contents
+    with open(filename, 'r') as file:
+        return yaml.safe_load(file)
+    
 print()
 header = "|| QBit-Tagger version 2.0 ||"
 padding = "=" * len(header)
@@ -588,8 +594,7 @@ print(f"{padding}\n{header}\n{padding}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Manage torrents in qBittorrent.")
-    parser.add_argument("-s", "--server", default="10.0.0.50", help="Server IP of the qBittorrent instance.")
-    parser.add_argument("-p", "--port", default="8080", help="Server port for the qBittorrent instance.")
+    parser.add_argument("-c", "--config", default="config.yaml", help="Path to the config file.")
     parser.add_argument("-t", "--tracker-config", default="trackers.json", help="Path to the tracker config json file.")
     parser.add_argument("-d", "--dry-run", default=False, action="store_true", help="Perform a dry run without making changes.")
     parser.add_argument("-n", "--no-color", default=False, action="store_true", help="No color in output. Useful when running in unraid via User scripts.")
@@ -598,7 +603,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    manager = TorrentManager(args.server, args.port, args.dry_run, args.no_color, args.tracker_config)
+    # Read from YAML
+    if os.path.exists(args.config):
+        config = read_yaml(args.config)
+    else:
+        print(f"ERROR: Unable to find '{args.config}'")
+        exit(2)
+
+    manager = TorrentManager(config, args.dry_run, args.no_color, args.tracker_config)
     manager.update_torrents()
 
     if args.output_hash:

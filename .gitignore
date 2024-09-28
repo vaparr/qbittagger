@@ -1,3 +1,9 @@
+# Local settings
+config.yaml
+trackers.json
+qb-test.py
+torrentinfo_sample.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -131,11 +137,6 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
-# Local settings
-trackers.json
-qb-dev.py
-torrentinfo_sample.txt
 
 # Spyder project settings
 .spyderproject
