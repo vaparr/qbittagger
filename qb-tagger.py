@@ -123,10 +123,12 @@ class TorrentInfo:
                 break
 
         # Has multiple files?
-        # self.is_multi_file = len(self.torrent_files) > 2
+        self.is_multi_file = len(self.torrent_files) > 1
 
         # Season pack?
-        self.is_season_pack = self.check_season_pack(self._name)
+        self.is_season_pack = False
+        if self.is_multi_file:
+            self.is_season_pack = self.check_season_pack(self._name)
 
         # How many seeders? It's polite to seed if there's less seeders than polite value in config.
         politeness = self.tracker_opts.get("polite", 0) if self.tracker_opts is not None else 0
@@ -150,6 +152,7 @@ class TorrentInfo:
         if any(re.search(pattern, torrent_name, re.IGNORECASE) for pattern in season_pack_patterns):
             return True
 
+        #print(self._hash)
         return None  # Could not determine
 
     def torrent_add_tag(self, tag):
