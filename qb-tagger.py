@@ -455,7 +455,7 @@ class TorrentManager:
     def handle_delete_state(self, torrent_info: TorrentInfo):
 
         # Fake torrents
-        if len(torrent_info.torrent_trackers_filtered) == 0:
+        if not torrent_info.torrent_trackers_filtered or len(torrent_info.torrent_trackers_filtered) == 0:
             torrent_info.delete_state = DeleteState.DELETE
 
         # Not cross-seeded
