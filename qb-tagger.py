@@ -17,20 +17,20 @@ class UpdateState(Flag):
 
 
 class CrossSeedState(Enum):
-    NONE = auto()
-    PARENT = auto()
-    PEER = auto()
-    ORPHAN = auto()
+    NONE = "_cs_none"
+    PARENT = "_cs_parent"
+    PEER = "_cs_peer"
+    ORPHAN = "_cs_orphan"
 
 
 class DeleteState(Enum):
-    NONE = auto()
-    READY = auto()
-    SOFT_DELETE = auto()
-    DELETE_IF_NEEDED = auto()
-    KEEP_LAST = auto()
-    AUTOBRR_DELETE = auto()
-    NEVER = auto()
+    NONE = "_delete_none"
+    READY = "_delete"
+    SOFT_DELETE = "_delete_soft"
+    DELETE_IF_NEEDED = "_delete_if_needed"
+    KEEP_LAST = "_keep_last"
+    AUTOBRR_DELETE = "_delete_autobrr"
+    NEVER = "_delete_never"
 
 
 class TorrentInfo:
@@ -365,42 +365,47 @@ class TorrentManager:
             if not hasParent:
                 torrent_info.cross_seed_state = CrossSeedState.ORPHAN
 
-        # cross-seed tags
+        # update cross-seed tags
+        self.update_cross_seed_tags(torrent_info)
+
+        # update delete tags
+        self.update_delete_tags(torrent_info)
+
+    def update_cross_seed_tags(self, torrent_info):
+
+        # _cs_all tag
         cs_all_tag = "_cs_all"
-        cs_parent_tag = "_cs_parent"
-        cs_peer_tag = "_cs_peer"
-        cs_orphan_tag = "_cs_orphan"
-
         torrent_info.torrent_add_tag(cs_all_tag) if torrent_info.cross_seed_state != CrossSeedState.NONE else torrent_info.torrent_remove_tag(cs_all_tag)
-        torrent_info.torrent_add_tag(cs_parent_tag) if torrent_info.cross_seed_state == CrossSeedState.PARENT else torrent_info.torrent_remove_tag(cs_parent_tag)
-        torrent_info.torrent_add_tag(cs_peer_tag) if torrent_info.cross_seed_state == CrossSeedState.PEER else torrent_info.torrent_remove_tag(cs_peer_tag)
-        torrent_info.torrent_add_tag(cs_orphan_tag) if torrent_info.cross_seed_state == CrossSeedState.ORPHAN else torrent_info.torrent_remove_tag(cs_orphan_tag)
 
-        # Define delete state tags
-        delete_tag = "_delete"
-        delete_soft_tag = "_delete_soft"
-        delete_if_needed_tag = "_delete_if_needed"
-        keep_last_tag = "_keep_last"
-        delete_autobrr_tag = "_delete_autobrr"
-        delete_never_tag = "_delete_never"
+        # First, check for NONE and remove all cross-seed tags
+        if torrent_info.cross_seed_state == CrossSeedState.NONE:
+            for state in CrossSeedState:
+                if state != CrossSeedState.NONE:  # Remove all other tags if state is NONE
+                    torrent_info.torrent_remove_tag(state.value)
+            return  # Exit after handling NONE
 
-        # Apply or remove tags based on delete state
-        torrent_info.torrent_add_tag(delete_tag) if torrent_info.delete_state == DeleteState.READY else torrent_info.torrent_remove_tag(delete_tag)
-        torrent_info.torrent_add_tag(delete_soft_tag) if torrent_info.delete_state == DeleteState.SOFT_DELETE else torrent_info.torrent_remove_tag(delete_soft_tag)
-        torrent_info.torrent_add_tag(delete_if_needed_tag) if torrent_info.delete_state == DeleteState.DELETE_IF_NEEDED else torrent_info.torrent_remove_tag(delete_if_needed_tag)
-        torrent_info.torrent_add_tag(keep_last_tag) if torrent_info.delete_state == DeleteState.KEEP_LAST else torrent_info.torrent_remove_tag(keep_last_tag)
-        torrent_info.torrent_add_tag(delete_autobrr_tag) if torrent_info.delete_state == DeleteState.AUTOBRR_DELETE else torrent_info.torrent_remove_tag(delete_autobrr_tag)
-        torrent_info.torrent_add_tag(delete_never_tag) if torrent_info.delete_state == DeleteState.NEVER else torrent_info.torrent_remove_tag(delete_never_tag)
+        # For other states, add the corresponding tag
+        for state in CrossSeedState:
+            if torrent_info.cross_seed_state == state:
+                torrent_info.torrent_add_tag(state.value)
+            else:
+                torrent_info.torrent_remove_tag(state.value)
 
-        # Remove all relevant tags if delete_state is NONE
+    def update_delete_tags(self, torrent_info):
+
+        # Special case for NONE
         if torrent_info.delete_state == DeleteState.NONE:
-            torrent_info.torrent_remove_tag(delete_tag)
-            torrent_info.torrent_remove_tag(delete_soft_tag)
-            torrent_info.torrent_remove_tag(delete_if_needed_tag)
-            torrent_info.torrent_remove_tag(delete_never_tag)
-            torrent_info.torrent_remove_tag(delete_autobrr_tag)
-            torrent_info.torrent_remove_tag(keep_last_tag)
+            for state in DeleteState:
+                if state != DeleteState.NONE:
+                    torrent_info.torrent_remove_tag(state.value)
+            return  # Exit after handling NONE
 
+        # For other states, add the corresponding tag
+        for state in DeleteState:
+            if torrent_info.delete_state == state:
+                torrent_info.torrent_add_tag(state.value)
+            else:
+                torrent_info.torrent_remove_tag(state.value)        
 
     def analyze_torrent(self, torrent_info: TorrentInfo):
 
