@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from enum import Enum, Flag, auto
 from colorama import Fore, Back, Style, init
+from tqdm import tqdm
 
 
 class UpdateState(Flag):
@@ -257,7 +258,8 @@ class TorrentManager:
         # process torrents and create list of TorrentInfo objects
         print(f"\n=== Phase 1: Getting a list of torrents from qBitTorrent... ")
         qb_torrents = self.qb.torrents_info()
-        for torrent_dict in qb_torrents:
+        # for torrent_dict in qb_torrents:
+        for torrent_dict in tqdm(qb_torrents, desc="Processing torrents", unit=" torrent", ncols=120):
 
             # get additional torrent info
             torrent_files = self.qb.torrents_files(torrent_dict.hash)
@@ -306,7 +308,10 @@ class TorrentManager:
             if UpdateState.UPLOAD_LIMIT in torrent_info.update_state:
                 self.qb_set_upload_limit(torrent_info)
 
-        print(f"\nProcessed {len(self.torrent_info_list)} torrents and updated {i} torrents.\n")
+        if i > 0:
+            print(f"\nProcessed {len(self.torrent_info_list)} torrents and updated {i} torrents.\n")
+        else:
+            print(f"Processed {len(self.torrent_info_list)} torrents and updated {i} torrents.\n")
 
     def build_tag_to_hashes(self):
 
@@ -601,9 +606,9 @@ class TorrentManager:
 
 
 print()
-print(f"===========================")
-print(f"| QBit-Tagger version 2.0 |")
-print(f"===========================")
+header = "|| QBit-Tagger version 2.0 ||"
+padding = "=" * len(header)
+print(f"{padding}\n{header}\n{padding}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Manage torrents in qBittorrent.")

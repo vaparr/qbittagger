@@ -1,3 +1,4 @@
 qbittorrent-api
 argparse
 colorama
+tqdm
