@@ -17,20 +17,20 @@ class UpdateState(Flag):
 
 
 class CrossSeedState(Enum):
-    NONE = auto()
-    PARENT = auto()
-    PEER = auto()
-    ORPHAN = auto()
+    NONE = "_cs_none"
+    PARENT = "_cs_parent"
+    PEER = "_cs_peer"
+    ORPHAN = "_cs_orphan"
 
 
 class DeleteState(Enum):
-    NONE = auto()
-    READY = auto()
-    SOFT_DELETE = auto()
-    DELETE_IF_NEEDED = auto()
-    KEEP_LAST = auto()
-    AUTOBRR_DELETE = auto()
-    NEVER = auto()
+    NONE = "_delete_none"
+    READY = "_delete"
+    SOFT_DELETE = "_delete_soft"
+    DELETE_IF_NEEDED = "_delete_if_needed"
+    KEEP_LAST = "_keep_last"
+    AUTOBRR_DELETE = "_delete_autobrr"
+    NEVER = "_delete_never"
 
 
 class TorrentInfo:
@@ -123,10 +123,12 @@ class TorrentInfo:
                 break
 
         # Has multiple files?
-        # self.is_multi_file = len(self.torrent_files) > 2
+        self.is_multi_file = len(self.torrent_files) > 1
 
         # Season pack?
-        self.is_season_pack = self.check_season_pack(self._name)
+        self.is_season_pack = False
+        if self.is_multi_file:
+            self.is_season_pack = self.check_season_pack(self._name)
 
         # How many seeders? It's polite to seed if there's less seeders than polite value in config.
         politeness = self.tracker_opts.get("polite", 0) if self.tracker_opts is not None else 0
@@ -143,13 +145,14 @@ class TorrentInfo:
             r"S\d{1,2}\s?$"  # Match patterns like "S05" at the end with optional spaces
             r"Complete",  # Match "Complete" in the name
         ]
-        episode_pattern = r"S\d{2}E\d{2}"  # Match episodes like "S01E01", "S02E03"
+        episode_pattern = r"S\d{2}\.?E\d{2}"  # Match episodes like "S01E01", "S02E03"
 
         if re.search(episode_pattern, torrent_name, re.IGNORECASE):
             return False
         if any(re.search(pattern, torrent_name, re.IGNORECASE) for pattern in season_pack_patterns):
             return True
 
+        #print(self._hash)
         return None  # Could not determine
 
     def torrent_add_tag(self, tag):
@@ -229,7 +232,7 @@ class TorrentInfo:
             magnet_reg = r"'magnet_uri': 'magnet:\?[^']+'"
             tracker_reg = r"('(?:tracker|url)': 'https?:\/\/[^?]+)(\?)"
             formatted_str = re.sub(magnet_reg, "'magnet_uri': '<redacted>'", formatted_str)
-            formatted_str = re.sub(tracker_reg + r".*", r"\1<redacted>'", formatted_str)
+            formatted_str = re.sub(tracker_reg + r".*", r"\1?<redacted>'", formatted_str)
         else:
             formatted_str = f"{str_attrs}"
 
@@ -337,31 +340,20 @@ class TorrentManager:
         if torrent_info.tracker_name:
             torrent_info.torrent_add_tag(torrent_info.tracker_name)
 
-        # unregistered
-        if torrent_info.is_unregistered:
-            torrent_info.torrent_add_tag("_unregistered")
-        else:
-            torrent_info.torrent_remove_tag("_unregistered")
+        unregistered_tag = "_unregistered"
+        torrent_info.torrent_add_tag(unregistered_tag) if torrent_info.is_unregistered else torrent_info.torrent_remove_tag(unregistered_tag)
+        
+        tracker_error_tag = "_tracker_error"
+        torrent_info.torrent_add_tag(tracker_error_tag) if torrent_info.is_tracker_error and not torrent_info.is_unregistered else torrent_info.torrent_remove_tag(tracker_error_tag)
 
-        # tracker error
-        if torrent_info.is_tracker_error and not torrent_info.is_unregistered:
-            torrent_info.torrent_add_tag("_tracker_error")
-        else:
-            torrent_info.torrent_remove_tag("_tracker_error")
+        rarred_tag = "_rarred"
+        torrent_info.torrent_add_tag(rarred_tag) if torrent_info.is_rarred else torrent_info.torrent_remove_tag(rarred_tag)
 
-        # rarred
-        if torrent_info.is_rarred:
-            torrent_info.torrent_add_tag("_rarred")
+        season_pack_tag = "_season_pack"
+        torrent_info.torrent_add_tag(season_pack_tag) if torrent_info.is_season_pack else torrent_info.torrent_remove_tag(season_pack_tag)
 
-        # season pack
-        if torrent_info.is_season_pack:
-            torrent_info.torrent_add_tag("_season_pack")
-
-        # throttled
-        if torrent_info.torrent_dict["up_limit"] > 0:
-            torrent_info.torrent_add_tag("_throttled")
-        else:
-            torrent_info.torrent_remove_tag("_throttled")
+        throttled_tag = "_throttled"
+        torrent_info.torrent_add_tag(throttled_tag) if torrent_info.torrent_dict["up_limit"] > 0 else torrent_info.torrent_remove_tag(throttled_tag)
 
         # Cross-seeded, orphaned peers
         if torrent_info.cross_seed_state == CrossSeedState.PEER:
@@ -373,65 +365,47 @@ class TorrentManager:
             if not hasParent:
                 torrent_info.cross_seed_state = CrossSeedState.ORPHAN
 
-        # cross-seed
-        if torrent_info.cross_seed_state != CrossSeedState.NONE:
-            torrent_info.torrent_add_tag("_cs_all")
-        else:
-            torrent_info.torrent_remove_tag("_cs_all")
+        # update cross-seed tags
+        self.update_cross_seed_tags(torrent_info)
 
-        if torrent_info.cross_seed_state == CrossSeedState.PARENT:
-            torrent_info.torrent_add_tag("_cs_parent")
-        else:
-            torrent_info.torrent_remove_tag("_cs_parent")
+        # update delete tags
+        self.update_delete_tags(torrent_info)
 
-        if torrent_info.cross_seed_state == CrossSeedState.PEER:
-            torrent_info.torrent_add_tag("_cs_peer")
-        else:
-            torrent_info.torrent_remove_tag("_cs_peer")
+    def update_cross_seed_tags(self, torrent_info):
 
-        if torrent_info.cross_seed_state == CrossSeedState.ORPHAN:
-            torrent_info.torrent_add_tag("_cs_orphan")
-        else:
-            torrent_info.torrent_remove_tag("_cs_orphan")
+        # _cs_all tag
+        cs_all_tag = "_cs_all"
+        torrent_info.torrent_add_tag(cs_all_tag) if torrent_info.cross_seed_state != CrossSeedState.NONE else torrent_info.torrent_remove_tag(cs_all_tag)
 
-        # deletion
-        if torrent_info.delete_state == DeleteState.READY:
-            torrent_info.torrent_add_tag("_delete")
-        else:
-            torrent_info.torrent_remove_tag("_delete")
+        # First, check for NONE and remove all cross-seed tags
+        if torrent_info.cross_seed_state == CrossSeedState.NONE:
+            for state in CrossSeedState:
+                if state != CrossSeedState.NONE:  # Remove all other tags if state is NONE
+                    torrent_info.torrent_remove_tag(state.value)
+            return  # Exit after handling NONE
 
-        if torrent_info.delete_state == DeleteState.SOFT_DELETE:
-            torrent_info.torrent_add_tag("_delete_soft")
-        else:
-            torrent_info.torrent_remove_tag("_delete_soft")
+        # For other states, add the corresponding tag
+        for state in CrossSeedState:
+            if torrent_info.cross_seed_state == state:
+                torrent_info.torrent_add_tag(state.value)
+            else:
+                torrent_info.torrent_remove_tag(state.value)
 
-        if torrent_info.delete_state == DeleteState.DELETE_IF_NEEDED:
-            torrent_info.torrent_add_tag("_delete_if_needed")
-        else:
-            torrent_info.torrent_remove_tag("_delete_if_needed")
+    def update_delete_tags(self, torrent_info):
 
-        if torrent_info.delete_state == DeleteState.KEEP_LAST:
-            torrent_info.torrent_add_tag("_keep_last")
-        else:
-            torrent_info.torrent_remove_tag("_keep_last")
-
-        if torrent_info.delete_state == DeleteState.AUTOBRR_DELETE:
-            torrent_info.torrent_add_tag("_delete_autobrr")
-        else:
-            torrent_info.torrent_remove_tag("_delete_autobrr")
-
-        if torrent_info.delete_state == DeleteState.NEVER:
-            torrent_info.torrent_add_tag("_delete_never")
-        else:
-            torrent_info.torrent_remove_tag("_delete_never")
-
+        # Special case for NONE
         if torrent_info.delete_state == DeleteState.NONE:
-            torrent_info.torrent_remove_tag("_delete")
-            torrent_info.torrent_remove_tag("_delete_soft")
-            torrent_info.torrent_remove_tag("_delete_if_needed")
-            torrent_info.torrent_remove_tag("_delete_never")
-            torrent_info.torrent_remove_tag("_delete_autobrr")
-            torrent_info.torrent_remove_tag("_keep_last")
+            for state in DeleteState:
+                if state != DeleteState.NONE:
+                    torrent_info.torrent_remove_tag(state.value)
+            return  # Exit after handling NONE
+
+        # For other states, add the corresponding tag
+        for state in DeleteState:
+            if torrent_info.delete_state == state:
+                torrent_info.torrent_add_tag(state.value)
+            else:
+                torrent_info.torrent_remove_tag(state.value)        
 
     def analyze_torrent(self, torrent_info: TorrentInfo):
 
