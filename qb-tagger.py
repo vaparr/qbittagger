@@ -27,7 +27,8 @@ class CrossSeedState(Enum):
 
 class DeleteState(Enum):
     NONE = "_delete_none"
-    READY = "_delete"
+    DELETE = "_delete"
+    READY = "_delete_ready"
     SOFT_DELETE = "_delete_soft"
     DELETE_IF_NEEDED = "_delete_if_needed"
     KEEP_LAST = "_keep_last"
@@ -452,6 +453,10 @@ class TorrentManager:
                     self.handle_keep_last(torrent_info)
 
     def handle_delete_state(self, torrent_info: TorrentInfo):
+
+        # Fake torrents
+        if len(torrent_info.torrent_trackers_filtered) == 0:
+            torrent_info.delete_state = DeleteState.DELETE
 
         # Not cross-seeded
         if torrent_info.cross_seed_state == CrossSeedState.NONE:
