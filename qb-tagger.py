@@ -272,7 +272,7 @@ class TorrentManager:
             if config['remove_category_for_bad_torrents'] == True:
                 self.remove_category_for_bad_torrents = True
         except:
-             print(f"Will not remove tags from torrents with errors since remove_category_for_bad_torrents is not set in config.yaml")
+             pass
 
         # connect to qb
         self.qb = self.connect_to_qb(self.server, self.port)
