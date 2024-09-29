@@ -1,3 +1,4 @@
 server: 192.168.1.10
 port: 8080
 default_autobrr_delete_days: 14
+remove_category_for_bad_torrents: False
