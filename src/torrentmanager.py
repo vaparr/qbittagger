@@ -3,12 +3,10 @@ import json
 import sys
 import os
 from datetime import datetime, timedelta
-from enum import Enum, Flag, auto
 from colorama import Fore, Back, Style, init
 from tqdm import tqdm
 from collections import defaultdict
 
-# from .torrentinfo import TorrentInfo, UpdateState, DeleteState, CrossSeedState
 from .torrentinfo import *
 
 class TorrentManager:
@@ -30,7 +28,7 @@ class TorrentManager:
 
         # config values
         self.default_autobrr_delete_days = config_manager.get('default_autobrr_delete_days')  # days
-        self.remove_category_for_bad_torrents = config_manager.get('default_autobrr_delete_days') 
+        self.remove_category_for_bad_torrents = config_manager.get('remove_category_for_bad_torrents') 
 
         # connect to qb
         self.qb = self.connect_to_qb(self.server, self.port)
