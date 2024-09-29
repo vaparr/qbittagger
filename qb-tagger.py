@@ -267,12 +267,10 @@ class TorrentManager:
         # tracker config
         self.tracker_options = self.load_trackers(tracker_json_path)
         self.default_autobrr_delete_days = config['default_autobrr_delete_days']  # days
-        self.remove_category_for_bad_torrents = False
         try:
-            if config['remove_category_for_bad_torrents'] == True:
-                self.remove_category_for_bad_torrents = True
+            self.remove_category_for_bad_torrents = config['remove_category_for_bad_torrents']
         except:
-             pass
+             self.remove_category_for_bad_torrents = False
 
         # connect to qb
         self.qb = self.connect_to_qb(self.server, self.port)
