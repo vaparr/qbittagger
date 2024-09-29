@@ -372,6 +372,9 @@ class TorrentManager:
         self.update_cross_seed_tags(torrent_info)
 
         # update delete tags
+        if not torrent_info.torrent_trackers_filtered:
+            torrent_info.delete_state = DeleteState.DELETE
+
         self.update_delete_tags(torrent_info)
 
     def update_cross_seed_tags(self, torrent_info):
@@ -453,10 +456,6 @@ class TorrentManager:
                     self.handle_keep_last(torrent_info)
 
     def handle_delete_state(self, torrent_info: TorrentInfo):
-
-        # Fake torrents
-        if not torrent_info.torrent_trackers_filtered or len(torrent_info.torrent_trackers_filtered) == 0:
-            torrent_info.delete_state = DeleteState.DELETE
 
         # Not cross-seeded
         if torrent_info.cross_seed_state == CrossSeedState.NONE:
