@@ -12,6 +12,8 @@ torrents = qb.torrents_info()
 i = 0
 listOfFiles=[]
 
+def isHardLink(filename):
+    return os.stat(filename).st_nlink > 1
 
 # Get a list of all files
 for torrent in torrents:
@@ -46,7 +48,8 @@ for path, dirname, filenames in os.walk("/mnt/user/plexmedia/downloads/qBittorre
 
     for fis in filenames:
         fullpath = path+fis
-#        print (fullpath)
+        if isHardLink(fullpath):
+            print (f"{fullpath} is hardlinked")
         if fullpath in listOfFiles:
             dupefound = True
 #            print(fullpath)
