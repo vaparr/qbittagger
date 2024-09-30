@@ -36,11 +36,12 @@ for torrent in torrents:
           listOfFiles.append(filename)
 
 #print (listOfFiles)
-
+hardlinkcount = 0
 # Find all files that are not in the list
 for path, dirname, filenames in os.walk("/mnt/user/plexmedia/downloads/qBittorrent/downloads/"):
 #    print (path,"path")
 #    print (dirname,"dirname")
+   
     if (path.endswith("/")):
        rarred= False
     else:
@@ -49,9 +50,11 @@ for path, dirname, filenames in os.walk("/mnt/user/plexmedia/downloads/qBittorre
     for fis in filenames:
         fullpath = path+fis
         if isHardLink(fullpath):
-            print (f"{fullpath} is hardlinked")
+            hardlinkcount = hardlinkcount + 1
         if fullpath in listOfFiles:
             dupefound = True
 #            print(fullpath)
         else:
             print(fullpath)
+
+print (f"HardLinked files {hardlinkcount}")
