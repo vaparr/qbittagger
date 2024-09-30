@@ -1,60 +1,45 @@
 import qbittorrentapi
-import json
 import os
 
+# Initialize qBittorrent client
 qb = qbittorrentapi.Client(host='192.168.1.62', port=8080)
-# display qBittorrent info
-#print(f'qBittorrent: {qb.app.version}')
-#for k,v in qb.app.build_info.items(): print(f'{k}: {v}')
 
+# Fetch torrents info
 torrents = qb.torrents_info()
 
-i = 0
-listOfFiles=[]
+# Set to store unique file paths for faster lookups
+unique_files = set()
 
-def isHardLink(filename):
+def is_hard_link(filename):
     return os.stat(filename).st_nlink > 1
 
-# Get a list of all files
+# Process each torrent
 for torrent in torrents:
     files = qb.torrents_files(torrent['hash'])
-    save_path = torrent['save_path'].replace("/plexmedia/","/mnt/user/plexmedia/")
-    if (save_path.endswith("/")):
-       rarred= False
-    else:
-       save_path = save_path + "/"
+    save_path = torrent['save_path'].replace("/plexmedia/", "/mnt/user/plexmedia/")
+    
+    # Ensure save_path ends with a '/'
+    if not save_path.endswith("/"):
+        save_path += "/"
 
-    dupeFound = False
-    rarred = False
+    # Add file paths to the set
     for file in files:
-       filename=save_path+file['name']
-#       print(filename)
-       if (filename in listOfFiles):
-           dupefound = True
-#          print (filename, "is in the list")
-       else:
-          listOfFiles.append(filename)
+        filename = os.path.join(save_path, file['name'])
+        unique_files.add(filename)
 
-#print (listOfFiles)
-hardlinkcount = 0
-# Find all files that are not in the list
-for path, dirname, filenames in os.walk("/mnt/user/plexmedia/downloads/qBittorrent/downloads/"):
-#    print (path,"path")
-#    print (dirname,"dirname")
-   
-    if (path.endswith("/")):
-       rarred= False
-    else:
-       path = path + "/"
+hardlink_count = 0
 
-    for fis in filenames:
-        fullpath = path+fis
-        if isHardLink(fullpath):
-            hardlinkcount = hardlinkcount + 1
-        if fullpath in listOfFiles:
-            dupefound = True
-#            print(fullpath)
-        else:
-            print(fullpath)
+# Walk through the directory to find files
+for root, _, filenames in os.walk("/mnt/user/plexmedia/downloads/qBittorrent/downloads/"):
+    for file in filenames:
+        full_path = os.path.join(root, file)
 
-print (f"HardLinked files {hardlinkcount}")
+        # Check for hard links
+        if is_hard_link(full_path):
+            hardlink_count += 1
+            
+        # Print paths not in the set
+        if full_path not in unique_files:
+            print(full_path)
+
+print(f"Hard-linked files: {hardlink_count}")
