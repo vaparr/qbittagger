@@ -9,13 +9,14 @@ from collections import defaultdict
 
 from .torrentinfo import *
 
+
 class TorrentManager:
 
     def __init__(self, config_manager, dry_run, no_color, tracker_json_path):
 
         # args
-        self.server = config_manager.get('server')
-        self.port = config_manager.get('port')
+        self.server = config_manager.get("server")
+        self.port = config_manager.get("port")
         self.dry_run = dry_run
         self.no_color = no_color
 
@@ -27,8 +28,8 @@ class TorrentManager:
         self.tracker_options = self.load_trackers(tracker_json_path)
 
         # config values
-        self.default_autobrr_delete_days = config_manager.get('default_autobrr_delete_days')  # days
-        self.remove_category_for_bad_torrents = config_manager.get('remove_category_for_bad_torrents')
+        self.default_autobrr_delete_days = config_manager.get("default_autobrr_delete_days")  # days
+        self.remove_category_for_bad_torrents = config_manager.get("remove_category_for_bad_torrents")
 
         # connect to qb
         self.qb = self.connect_to_qb(self.server, self.port)
@@ -55,13 +56,15 @@ class TorrentManager:
         for torrent_info in self.torrent_info_list.values():
             self.analyze_torrent(torrent_info)
 
+        # set torrentinfo props, separate loop to make sure cross-seed orphans are set properly
+        for torrent_info in self.torrent_info_list.values():
+            self.set_torrent_info(torrent_info)
+
     def update_torrents(self):
 
         i = 0
         print(f"\n=== Phase 3: Updating torrents\n")
         for torrent_info in self.torrent_info_list.values():
-
-            self.set_torrent_info(torrent_info)
 
             if torrent_info.update_state == UpdateState(0):
                 continue
@@ -120,7 +123,11 @@ class TorrentManager:
         torrent_info.torrent_add_tag(unregistered_tag) if torrent_info.is_unregistered else torrent_info.torrent_remove_tag(unregistered_tag)
 
         tracker_error_tag = "_tracker_error"
-        torrent_info.torrent_add_tag(tracker_error_tag) if torrent_info.is_tracker_error and not torrent_info.is_unregistered else torrent_info.torrent_remove_tag(tracker_error_tag)
+        (
+            torrent_info.torrent_add_tag(tracker_error_tag)
+            if torrent_info.is_tracker_error and not torrent_info.is_unregistered
+            else torrent_info.torrent_remove_tag(tracker_error_tag)
+        )
 
         rarred_tag = "_rarred"
         torrent_info.torrent_add_tag(rarred_tag) if torrent_info.is_rarred else torrent_info.torrent_remove_tag(rarred_tag)
@@ -148,12 +155,11 @@ class TorrentManager:
         if not torrent_info.torrent_trackers_filtered:
             torrent_info.delete_state = DeleteState.DELETE
             torrent_info.torrent_remove_category(self.remove_category_for_bad_torrents)
+        self.update_delete_tags(torrent_info)
 
         # Remove category if we are in an error state. Allows sonarr and radarr to give up.
         if torrent_info.is_tracker_error or torrent_info.is_unregistered:
             torrent_info.torrent_remove_category(self.remove_category_for_bad_torrents)
-
-        self.update_delete_tags(torrent_info)
 
     def update_cross_seed_tags(self, torrent_info):
 

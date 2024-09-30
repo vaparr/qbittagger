@@ -3,6 +3,7 @@ from enum import Enum, Flag, auto
 from collections import defaultdict
 from datetime import datetime
 
+
 class UpdateState(Flag):
     TAG_ADD = auto()
     TAG_REMOVE = auto()
@@ -26,6 +27,7 @@ class DeleteState(Enum):
     AUTOBRR_DELETE = "_delete_autobrr"
     NEVER = "_delete_never"
 
+
 class TorrentInfo:
 
     # static variable
@@ -37,7 +39,7 @@ class TorrentInfo:
         self.torrent_dict = torrent_dict
         self.torrent_files = torrent_files
         self.torrent_trackers = torrent_trackers
-        self.torrent_trackers_filtered = list(filter(lambda tracker: tracker['tier'] >= 0, torrent_trackers))
+        self.torrent_trackers_filtered = list(filter(lambda tracker: tracker["tier"] >= 0, torrent_trackers))
 
         # torrent props
         self._hash = torrent_dict.hash
@@ -145,7 +147,7 @@ class TorrentInfo:
         if any(re.search(pattern, torrent_name, re.IGNORECASE) for pattern in season_pack_patterns):
             return True
 
-        #print(self._hash)
+        # print(self._hash)
         return None  # Could not determine
 
     def torrent_add_tag(self, tag):
@@ -173,7 +175,6 @@ class TorrentInfo:
             # Check if there are no more tags left to add and clear TAG_ADD flag
             if not self.update_tags_add:
                 self.update_state &= ~UpdateState.TAG_ADD
-
 
     def torrent_remove_category(self, remove_category_for_bad_torrents):
 
@@ -223,8 +224,8 @@ class TorrentInfo:
 
         # Formatting
         str_torrent_dict = str(self.torrent_dict).replace("TorrentDictionary({", "TorrentDictionary({\n        ").replace(", '", ", \n        '").replace("})", "\n      }),")
-        str_torrent_trackers = str(self.torrent_trackers_filtered).replace("Tracker({", "\n        Tracker({").replace("})]","})\n      ],")
-        str_torrent_files = str(self.torrent_files).replace("TorrentFile({", "\n        TorrentFile({").replace("})]","})\n      ],")
+        str_torrent_trackers = str(self.torrent_trackers_filtered).replace("Tracker({", "\n        Tracker({").replace("})]", "})\n      ],")
+        str_torrent_files = str(self.torrent_files).replace("TorrentFile({", "\n        TorrentFile({").replace("})]", "})\n      ],")
 
         # Combine the dynamically generated attributes and the formatted torrent_dict
         if include_extended:
