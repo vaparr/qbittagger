@@ -14,11 +14,11 @@ class TorrentManager:
     def __init__(self, config_manager, dry_run, no_color, tracker_json_path):
 
         # args
-        self.server = config_manager.get('server') 
-        self.port = config_manager.get('port') 
+        self.server = config_manager.get('server')
+        self.port = config_manager.get('port')
         self.dry_run = dry_run
         self.no_color = no_color
-       
+
         # dict to store torrents
         self.torrent_info_list = defaultdict(list)
         self.torrent_tag_hashes_list = defaultdict(list)
@@ -28,7 +28,7 @@ class TorrentManager:
 
         # config values
         self.default_autobrr_delete_days = config_manager.get('default_autobrr_delete_days')  # days
-        self.remove_category_for_bad_torrents = config_manager.get('remove_category_for_bad_torrents') 
+        self.remove_category_for_bad_torrents = config_manager.get('remove_category_for_bad_torrents')
 
         # connect to qb
         self.qb = self.connect_to_qb(self.server, self.port)
@@ -62,11 +62,6 @@ class TorrentManager:
         for torrent_info in self.torrent_info_list.values():
 
             self.set_torrent_info(torrent_info)
-
-            if self.remove_category_for_bad_torrents != True:
-                #flag = format(torrent_info.update_state)
-                #print(f"Removing cat {flag}")
-                torrent_info.update_state  &= ~UpdateState.CATEGORY_REMOVE                
 
             if torrent_info.update_state == UpdateState(0):
                 continue
@@ -126,7 +121,7 @@ class TorrentManager:
 
         tracker_error_tag = "_tracker_error"
         torrent_info.torrent_add_tag(tracker_error_tag) if torrent_info.is_tracker_error and not torrent_info.is_unregistered else torrent_info.torrent_remove_tag(tracker_error_tag)
-        
+
         rarred_tag = "_rarred"
         torrent_info.torrent_add_tag(rarred_tag) if torrent_info.is_rarred else torrent_info.torrent_remove_tag(rarred_tag)
 
@@ -152,11 +147,11 @@ class TorrentManager:
         # update delete tags
         if not torrent_info.torrent_trackers_filtered:
             torrent_info.delete_state = DeleteState.DELETE
-            torrent_info.torrent_remove_category()
+            torrent_info.torrent_remove_category(self.remove_category_for_bad_torrents)
 
         # Remove category if we are in an error state. Allows sonarr and radarr to give up.
         if torrent_info.is_tracker_error or torrent_info.is_unregistered:
-            torrent_info.torrent_remove_category() 
+            torrent_info.torrent_remove_category(self.remove_category_for_bad_torrents)
 
         self.update_delete_tags(torrent_info)
 
@@ -194,7 +189,7 @@ class TorrentManager:
             if torrent_info.delete_state == state:
                 torrent_info.torrent_add_tag(state.value)
             else:
-                torrent_info.torrent_remove_tag(state.value)        
+                torrent_info.torrent_remove_tag(state.value)
 
     def analyze_torrent(self, torrent_info: TorrentInfo):
 
@@ -216,12 +211,9 @@ class TorrentManager:
         if torrent_info.torrent_dict["force_start"]:
             torrent_info.delete_state = DeleteState.NEVER
 
-        # Check if it's past the threshold or unregistered
-        if torrent_info.is_unregistered:
-            if torrent_info.cross_seed_state != CrossSeedState.NONE:
-                torrent_info.delete_state = DeleteState.SOFT_DELETE
-            else:
-                torrent_info.delete_state = DeleteState.READY
+        # Check if it's unregistered
+        if torrent_info.is_unregistered and torrent_info.cross_seed_state == CrossSeedState.NONE:
+            torrent_info.delete_state = DeleteState.READY
 
         if torrent_info.delete_state == DeleteState.NONE:
             # Set tracker delete days, default to 0 if None
@@ -335,7 +327,7 @@ class TorrentManager:
                         print(f"  Adding tag '{Fore.GREEN}{tag}{Fore.RESET}' to torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
             except:
                 print(f"  Failed to set tag '{tag}' for {torrent_hash}")
-   
+
     def qb_remove_category(self, torrent_info: TorrentInfo):
         if self.remove_category_for_bad_torrents == True:
             category = torrent_info.torrent_dict["category"]

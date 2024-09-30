@@ -21,7 +21,6 @@ class DeleteState(Enum):
     NONE = "_delete_none"
     DELETE = "_delete"
     READY = "_delete_ready"
-    SOFT_DELETE = "_delete_soft"
     DELETE_IF_NEEDED = "_delete_if_needed"
     KEEP_LAST = "_keep_last"
     AUTOBRR_DELETE = "_delete_autobrr"
@@ -176,10 +175,13 @@ class TorrentInfo:
                 self.update_state &= ~UpdateState.TAG_ADD
 
 
-    def torrent_remove_category(self):
-                
+    def torrent_remove_category(self, remove_category_for_bad_torrents):
+
+        if not remove_category_for_bad_torrents:
+            return
+
         if (self.torrent_dict["category"]) != "" and (self.torrent_dict["category"]) != "autobrr":
-            self.update_state |= UpdateState.CATEGORY_REMOVE 
+            self.update_state |= UpdateState.CATEGORY_REMOVE
 
     def torrent_set_upload_limit(self, tracker_entry):
         # Set default to 0 if throttle values are 0 or non-existent
