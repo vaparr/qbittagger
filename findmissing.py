@@ -18,11 +18,11 @@ def is_hard_link(filename):
 for torrent in torrents:
     files = qb.torrents_files(torrent['hash'])
     save_path = torrent['save_path'].replace("/plexmedia/", "/mnt/user/plexmedia/")
-    save_paths.add(save_path)
+
     # Ensure save_path ends with a '/'
     if not save_path.endswith("/"):
         save_path += "/"
-
+    save_paths.add(save_path)
     # Add file paths to the set
     for file in files:
         filename = os.path.join(save_path, file['name'])
