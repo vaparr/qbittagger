@@ -72,10 +72,12 @@ with ThreadPoolExecutor() as executor:
 
 # Print out unique hard link hashes
 for torrent_hash in hardlink_hashes:
+    qb.torrents_add_tags("_hardlink", torrent_hash)
     print(f"Unique hard link detected for torrent with hash '{torrent_hash}'")
 
 # Print missing files
 for missing_file in missing_files:
+    # Move file to Recycle Bin, or delete
     print(f"Missing file not in unique set: {missing_file}")
 
 print(f"Total hard-linked files: {hardlink_count}")
