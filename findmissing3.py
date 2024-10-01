@@ -34,7 +34,7 @@ for torrent in torrents:
         save_paths[save_path].add(filename)
 
 hardlink_count = 0
-hardlink_info = []
+hardlink_hashes = set()
 missing_files = set()
 
 def check_hard_link(full_path, hash_to_filenames):
@@ -42,7 +42,7 @@ def check_hard_link(full_path, hash_to_filenames):
     if is_hard_link(full_path):
         for torrent_hash, filenames in hash_to_filenames.items():
             if full_path in filenames:
-                return (torrent_hash, full_path)
+                return torrent_hash  # Return only the hash
     return None
 
 # Walk through the directory to find files
@@ -67,12 +67,12 @@ with ThreadPoolExecutor() as executor:
     for future in futures:
         result = future.result()
         if result:
-            hardlink_info.append(result)
+            hardlink_hashes.add(result)  # Add only unique hashes
             hardlink_count += 1
 
-# Print out hard link information
-for torrent_hash, linked_file in hardlink_info:
-    print(f"Hard link detected for file '{linked_file}' in torrent with hash '{torrent_hash}'")
+# Print out unique hard link hashes
+for torrent_hash in hardlink_hashes:
+    print(f"Unique hard link detected for torrent with hash '{torrent_hash}'")
 
 # Print missing files
 for missing_file in missing_files:
