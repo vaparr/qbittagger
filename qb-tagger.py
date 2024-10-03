@@ -1,10 +1,10 @@
 
 import argparse
-import yaml
 
+from collections import OrderedDict
 from src.config import ConfigManager
 from src.torrentmanager import TorrentManager
-    
+
 print()
 header = "|| QBit-Tagger version 2.0 ||"
 padding = "=" * len(header)
@@ -21,12 +21,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    default_config = {
-        'server': 'localhost',
-        'port': 8080,
-        'default_autobrr_delete_days': 14,
-        'remove_category_for_bad_torrents': False
-    }
+    default_config = OrderedDict([
+        ('server', 'localhost'),
+        ('port', 8080),
+        ('default_autobrr_delete_days', 14),
+        ('remove_category_for_bad_torrents', False)
+    ])
 
     # Initialize the ConfigManager with the config file path and default values
     config_manager = ConfigManager(args.config, default_config)

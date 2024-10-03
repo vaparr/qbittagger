@@ -1,4 +1,5 @@
 import yaml
+from collections import OrderedDict
 import os
 
 class ConfigManager:
@@ -10,41 +11,59 @@ class ConfigManager:
         :param default_config: A dictionary of default values for specific settings.
         """
         self.config_file = config_file
-        self.default_config = default_config or {}
+        self.default_config = default_config or OrderedDict()
 
         # Load the config file or create it if it doesn't exist
         self.config = self._load_config()
 
     def _load_config(self):
-        """Loads the config from the YAML file, applying defaults if necessary."""
+        """Load the config from the YAML file, applying defaults if necessary."""
         if os.path.exists(self.config_file):
             with open(self.config_file, 'r') as file:
-                config = yaml.safe_load(file) or {}
+                config = yaml.load(file, Loader=self._get_ordered_loader()) or OrderedDict()
         else:
-            config = {}
+            config = OrderedDict()
 
-        # Merge the loaded config with the default config
-        return {**self.default_config, **config}
+        # Merge the loaded config with the default config, preserving root-level order
+        merged_config = OrderedDict(self.default_config)
+        merged_config.update(config)
+        return merged_config
+
+    def _get_ordered_loader(self):
+        """Custom YAML loader to load root-level mappings as OrderedDict."""
+        class OrderedLoader(yaml.SafeLoader):
+            pass
+
+        def construct_mapping(loader, node):
+            loader.flatten_mapping(node)
+            return OrderedDict(loader.construct_pairs(node))
+
+        OrderedLoader.add_constructor(
+            yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+            construct_mapping)
+        return OrderedLoader
+
+    def _get_ordered_dumper(self):
+        """Custom YAML dumper to dump OrderedDicts at the root level."""
+        class OrderedDumper(yaml.SafeDumper):
+            pass
+
+        def _dict_representer(dumper, data):
+            return dumper.represent_dict(data.items())
+
+        OrderedDumper.add_representer(OrderedDict, _dict_representer)
+        return OrderedDumper
 
     def get(self, key, default=None):
         """
-        Retrieve a configuration value by key. If the key doesn't exist, 
+        Retrieve a configuration value by key. If the key doesn't exist,
         check for a default value, otherwise return None or the provided default.
 
         :param key: The configuration key to retrieve.
         :param default: A fallback default value if the key is not found.
         :return: The value from the config or the default.
         """
-        # First, check if the key exists in the current configuration
-        if key in self.config:
-            return self.config[key]
-        
-        # Next, check if there is a per-key default in the default_config dictionary
-        if key in self.default_config:
-            return self.default_config[key]
-        
-        # Finally, return the provided default value or None
-        return default
+        return self.config.get(key, default)
 
     def set(self, key, value):
         """
@@ -56,9 +75,9 @@ class ConfigManager:
         self.config[key] = value
 
     def save(self):
-        """Saves the current configuration back to the YAML file."""
+        """Save the current configuration back to the YAML file, preserving root-level order."""
         with open(self.config_file, 'w') as file:
-            yaml.dump(self.config, file)
+            yaml.dump(self.config, file, Dumper=self._get_ordered_dumper(), default_flow_style=False)
 
     def get_all(self):
         """
