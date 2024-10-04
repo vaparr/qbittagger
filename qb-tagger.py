@@ -18,6 +18,7 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--no-color", default=False, action="store_true", help="No color in output. Useful when running in unraid via User scripts.")
     parser.add_argument("-o", "--output-hash", default=None, help="Torrent hash or hashes (comma separated) for which to print TorrentInfo.")
     parser.add_argument("-e", "--output-extended", default=False, action="store_true", help="Print extended output. Only works when -o is used.")
+    parser.add_argument("-r", "--remove-orphaned", default=False, action="store_true", help="(re)move orphaned files. Requires orphaned_destination and path_mappings to be set in the config file.")
 
     args = parser.parse_args()
 
