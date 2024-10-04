@@ -3,7 +3,7 @@ import argparse
 
 from collections import OrderedDict
 from src.config import ConfigManager
-from src.torrentmanager import TorrentManager
+from src.torrentmanager import TorrentManager, TorrentInfo
 
 print()
 header = "|| QBit-Tagger version 2.0 ||"
@@ -18,7 +18,6 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--no-color", default=False, action="store_true", help="No color in output. Useful when running in unraid via User scripts.")
     parser.add_argument("-o", "--output-hash", default=None, help="Torrent hash or hashes (comma separated) for which to print TorrentInfo.")
     parser.add_argument("-e", "--output-extended", default=False, action="store_true", help="Print extended output. Only works when -o is used.")
-    parser.add_argument("-r", "--remove-orphaned", default=False, action="store_true", help="(re)move orphaned files. Requires orphaned_destination and path_mappings to be set in the config file.")
 
     args = parser.parse_args()
 
@@ -26,14 +25,25 @@ if __name__ == "__main__":
         ('server', 'localhost'),
         ('port', 8080),
         ('default_autobrr_delete_days', 14),
-        ('remove_category_for_bad_torrents', False)
+        ('remove_category_for_bad_torrents', False),
+        ('tag_hardlink', False),
+        ('move_orphaned', False),
+        ('remove_orphaned_age_days', -1),
+        ('orphaned_destination', "/path/on/host/qb-orphaned"),
+        ('path_mappings', [
+            {'container_path': '/path1/in/container', 'host_path': '/path1/on/host'},
+            {'container_path': '/path2/in/container', 'host_path': '/path2/on/host'}
+        ])
     ])
 
     # Initialize the ConfigManager with the config file path and default values
     config_manager = ConfigManager(args.config, default_config)
     config_manager.save() # save the file back to populate missing settings in config.yaml
 
-    manager = TorrentManager(config_manager, args.dry_run, args.no_color, args.tracker_config)
+    # set config for TorrentManager and TorrentInfo
+    TorrentManager.Config_Manager = TorrentInfo.Config_Manager = config_manager
+
+    manager = TorrentManager(args.dry_run, args.no_color, args.tracker_config)
     manager.update_torrents()
 
     if args.output_hash:

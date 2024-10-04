@@ -1,4 +1,5 @@
 import re
+import os
 from enum import Enum, Flag, auto
 from collections import defaultdict
 from datetime import datetime
@@ -30,8 +31,13 @@ class DeleteState(Enum):
 
 class TorrentInfo:
 
-    # static variable
-    File_Dict = defaultdict(list)
+    # static variables
+    Config_Manager = None
+    ContentPath_Dict = defaultdict(list)
+    Unique_Files = set()
+    Unique_SavePaths = set()
+    Stat_Cache = {}
+    Stat_Cache_Hits = 0
 
     def __init__(self, torrent_dict, torrent_files, torrent_trackers, tracker_options):
 
@@ -60,7 +66,7 @@ class TorrentInfo:
 
         # Track content_path
         self.content_path = self.format_path(torrent_dict.content_path)
-        self.File_Dict[self.content_path].append(self)
+        TorrentInfo.ContentPath_Dict[self.content_path].append(self)
 
         # autobrr
         self.is_autobrr_torrent = "autobrr" in self.current_tags
@@ -132,6 +138,40 @@ class TorrentInfo:
         # tracker error?
         self.is_tracker_error = all(tracker.status == 4 for tracker in self.torrent_trackers_filtered)
 
+        # Track save paths
+        save_path = torrent_dict['save_path']
+        for mapping in TorrentInfo.Config_Manager.get('path_mappings'):
+            save_path = save_path.replace(mapping['container_path'], mapping['host_path'])
+        self.save_path_host = self.format_path(save_path)
+        TorrentInfo.Unique_SavePaths.add(self.save_path_host)
+
+        # hardlink detection
+        self.is_hardlinked = False
+        if TorrentInfo.Config_Manager.get('tag_hardlink'):
+            for file in torrent_files:
+                filename = os.path.join(self.save_path_host, file['name'])
+                TorrentInfo.Unique_Files.add(filename)
+                if self.is_hard_link(filename):
+                    self.is_hardlinked = True
+                    break
+
+    def is_hard_link(self, filename):
+        # Check if filename is already cached
+        if filename in TorrentInfo.Stat_Cache:
+            stat_result = TorrentInfo.Stat_Cache[filename]
+            TorrentInfo.Stat_Cache_Hits += 1
+        else:
+            try:
+                # Perform os.stat and cache the result
+                stat_result = os.stat(filename)
+                TorrentInfo.Stat_Cache[filename] = stat_result
+            except OSError:
+                return False  # Return False if there is an issue with the file
+
+        # Return True if the file is a hard link
+        return stat_result.st_nlink > 1
+
+
     def check_season_pack(self, torrent_name: str) -> bool:
         season_pack_patterns = [
             r"S\d{1,2}[^E]",  # Match season like "S01", "S01-S02", without episode
@@ -176,9 +216,9 @@ class TorrentInfo:
             if not self.update_tags_add:
                 self.update_state &= ~UpdateState.TAG_ADD
 
-    def torrent_remove_category(self, remove_category_for_bad_torrents):
+    def torrent_remove_category(self):
 
-        if not remove_category_for_bad_torrents:
+        if not TorrentInfo.Config_Manager.get('remove_category_for_bad_torrents'):
             return
 
         if (self.torrent_dict["category"]) != "" and (self.torrent_dict["category"]) != "autobrr":

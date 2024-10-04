@@ -1,5 +1,6 @@
 # Local settings
 config.yaml
+config*.yaml
 trackers.json
 qb-test.py
 torrentinfo_sample.txt

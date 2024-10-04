@@ -9,14 +9,15 @@ from collections import defaultdict
 
 from .torrentinfo import *
 
-
 class TorrentManager:
 
-    def __init__(self, config_manager, dry_run, no_color, tracker_json_path):
+    Config_Manager = None
+
+    def __init__(self, dry_run, no_color, tracker_json_path):
 
         # args
-        self.server = config_manager.get("server")
-        self.port = config_manager.get("port")
+        self.server = TorrentManager.Config_Manager.get("server")
+        self.port = TorrentManager.Config_Manager.get("port")
         self.dry_run = dry_run
         self.no_color = no_color
 
@@ -26,10 +27,6 @@ class TorrentManager:
 
         # tracker config
         self.tracker_options = self.load_trackers(tracker_json_path)
-
-        # config values
-        self.default_autobrr_delete_days = config_manager.get("default_autobrr_delete_days")  # days
-        self.remove_category_for_bad_torrents = config_manager.get("remove_category_for_bad_torrents")
 
         # connect to qb
         self.qb = self.connect_to_qb(self.server, self.port)
@@ -101,11 +98,8 @@ class TorrentManager:
 
         # Iterate over all torrent info in the list
         for torrent_info in self.torrent_info_list.values():
-            # Get the tags and hash for the torrent
-            tags = [t.strip() for t in torrent_info.torrent_dict.get("tags", "").split(",")]
-
             # Add the torrent hash to the corresponding tag in the defaultdict
-            for tag in tags:
+            for tag in torrent_info.current_tags:
                 if tag:  # Avoid adding empty tags
                     self.torrent_tag_hashes_list[tag].append(torrent_info._hash)
 
@@ -154,12 +148,20 @@ class TorrentManager:
         # update delete tags
         if not torrent_info.torrent_trackers_filtered:
             torrent_info.delete_state = DeleteState.DELETE
-            torrent_info.torrent_remove_category(self.remove_category_for_bad_torrents)
+            torrent_info.torrent_remove_category()
         self.update_delete_tags(torrent_info)
 
         # Remove category if we are in an error state. Allows sonarr and radarr to give up.
         if torrent_info.is_tracker_error or torrent_info.is_unregistered:
-            torrent_info.torrent_remove_category(self.remove_category_for_bad_torrents)
+            torrent_info.torrent_remove_category()
+
+        # hardlink
+        if TorrentManager.Config_Manager.get('tag_hardlink'):
+            hl_tag_add = "_hardlink" if torrent_info.is_hardlinked else "_no_hardlink"
+            hl_tag_remove = "_no_hardlink" if torrent_info.is_hardlinked else "_hardlink"
+            torrent_info.torrent_add_tag(hl_tag_add)
+            torrent_info.torrent_remove_tag(hl_tag_remove)
+
 
     def update_cross_seed_tags(self, torrent_info):
 
@@ -200,7 +202,7 @@ class TorrentManager:
     def analyze_torrent(self, torrent_info: TorrentInfo):
 
         # Determine if cross-seeded
-        file_torrents = torrent_info.File_Dict[torrent_info.content_path]
+        file_torrents = TorrentInfo.ContentPath_Dict[torrent_info.content_path]
         if len(file_torrents) > 1:
             if torrent_info.torrent_dict["downloaded"] == 0:
                 torrent_info.cross_seed_state = CrossSeedState.PEER
@@ -225,7 +227,7 @@ class TorrentManager:
             # Set tracker delete days, default to 0 if None
             tracker_delete_days = torrent_info.tracker_opts.get("delete", 0)
             if torrent_info.is_autobrr_torrent:
-                tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or self.default_autobrr_delete_days
+                tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or TorrentManager.Config_Manager.get('default_autobrr_delete_days')
 
             # Only calculate if we have a valid completion timestamp and non-zero delete days
             if tracker_delete_days > 0 and torrent_info.torrent_dict["completion_on"] > 1000000000:
@@ -335,23 +337,23 @@ class TorrentManager:
                 print(f"  Failed to set tag '{tag}' for {torrent_hash}")
 
     def qb_remove_category(self, torrent_info: TorrentInfo):
-        if self.remove_category_for_bad_torrents == True:
-            category = torrent_info.torrent_dict["category"]
-            torrent_hash = torrent_info._hash
-            try:
-                if self.dry_run:
-                    if self.no_color:
-                        print(f"  [DRY RUN] Would remove category '{category}' on torrent {torrent_hash}")
-                    else:
-                        print(f"  [DRY RUN] Would remove category '{Fore.GREEN}{category}{Fore.RESET}' on torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+
+        category = torrent_info.torrent_dict["category"]
+        torrent_hash = torrent_info._hash
+        try:
+            if self.dry_run:
+                if self.no_color:
+                    print(f"  [DRY RUN] Would remove category '{category}' on torrent {torrent_hash}")
                 else:
-                    self.qb.torrents_set_category("", torrent_hash)
-                    if self.no_color:
-                        print(f"  Removing category '{category}' on torrent {torrent_hash}")
-                    else:
-                        print(f"  Removing category '{Fore.GREEN}{category}{Fore.RESET}' on torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
-            except:
-                print(f"  Failed to removing category on torrent for {torrent_hash}")
+                    print(f"  [DRY RUN] Would remove category '{Fore.GREEN}{category}{Fore.RESET}' on torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+            else:
+                self.qb.torrents_set_category("", torrent_hash)
+                if self.no_color:
+                    print(f"  Removing category '{category}' on torrent {torrent_hash}")
+                else:
+                    print(f"  Removing category '{Fore.GREEN}{category}{Fore.RESET}' on torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+        except:
+            print(f"  Failed to removing category on torrent for {torrent_hash}")
 
     def qb_remove_tag(self, torrent_info: TorrentInfo):
 
