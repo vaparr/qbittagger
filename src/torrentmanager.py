@@ -392,3 +392,21 @@ class TorrentManager:
                 self.qb.torrents_set_upload_limit(upload_limit, torrent_hash)
         except:
             print(f"  Failed to set upload limit for {torrent_hash}")
+
+    def move_orphaned(self):
+        print("=== Finding orphaned files")
+        for save_path in TorrentInfo.Unique_SavePaths:
+            print(f"\nScanning {save_path}")
+            for root, _, filenames in os.walk(save_path):
+                for file in filenames:
+                    if file == ".DS_Store":
+                        continue
+                    full_path = os.path.join(root, file)
+                    if full_path not in TorrentInfo.Unique_Files:
+                        dest_dir = full_path.replace(save_path, TorrentInfo.Config_Manager.get('orphaned_destination'))
+                        dest_path = dest_dir
+                        print(F" -- MOVE: {full_path} ")
+                        print(F"      TO: {dest_path}")
+
+    def remove_orphaned(self):
+        return None

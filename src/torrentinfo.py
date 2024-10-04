@@ -145,12 +145,12 @@ class TorrentInfo:
         self.save_path_host = self.format_path(save_path)
         TorrentInfo.Unique_SavePaths.add(self.save_path_host)
 
-        # hardlink detection
+        # Add unique files and detect hardlinks, if enabled
         self.is_hardlinked = False
-        if TorrentInfo.Config_Manager.get('tag_hardlink'):
-            for file in torrent_files:
-                filename = os.path.join(self.save_path_host, file['name'])
-                TorrentInfo.Unique_Files.add(filename)
+        for file in torrent_files:
+            filename = os.path.join(self.save_path_host, file['name'])
+            TorrentInfo.Unique_Files.add(filename)
+            if TorrentInfo.Config_Manager.get('tag_hardlink'):
                 if self.is_hard_link(filename):
                     self.is_hardlinked = True
                     break
