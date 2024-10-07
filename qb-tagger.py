@@ -35,6 +35,10 @@ if __name__ == "__main__":
         ('path_mappings', [
             {'container_path': '/path1/in/container', 'host_path': '/path1/on/host'},
             {'container_path': '/path2/in/container', 'host_path': '/path2/on/host'}
+        ]),
+        ('excluded_save_paths', [
+            '/path1/on/host',
+            '/path2/on/host'
         ])
     ])
 
@@ -47,12 +51,8 @@ if __name__ == "__main__":
 
     manager = TorrentManager(args.dry_run, args.no_color, args.tracker_config)
     manager.update_torrents()
-
-    if config_manager.get('move_orphaned'):
-        manager.move_orphaned()
-
-    if config_manager.get('remove_orphaned_age_days') > 0:
-        manager.remove_orphaned()
+    manager.move_orphaned()
+    manager.remove_orphaned()
 
     if args.output_hash:
         hash_list = [h.strip() for h in args.output_hash.split(",")]  # Split and strip whitespaces

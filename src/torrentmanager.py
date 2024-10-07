@@ -35,7 +35,7 @@ class TorrentManager:
         self.qb = self.connect_to_qb(self.server, self.port)
 
         # process torrents and create list of TorrentInfo objects
-        print(f"\n=== Phase 1: Getting a list of torrents from qBitTorrent... ")
+        print(f"\n=== Phase 1: Getting a list of torrents from qBitTorrent ===")
         try:
             qb_torrents = self.qb.torrents_info()
         except Exception as e:
@@ -63,18 +63,20 @@ class TorrentManager:
         self.build_tag_to_hashes()
 
         # process the list for cross-seeds and deletes and set torrentinfo object props accordingly
-        print(f"\n=== Phase 2: Analyzing torrents... ")
-        for torrent_info in self.torrent_info_list.values():
+        print(f"\n=== Phase 2: Analyzing torrents ===")
+        # for torrent_info in self.torrent_info_list.values():
+        for torrent_info in tqdm(self.torrent_info_list.values(), desc="Processing torrents (first pass)", unit=" torrent", ncols=120):
             self.analyze_torrent(torrent_info)
 
         # set torrentinfo props, separate loop to make sure cross-seed orphans are set properly
-        for torrent_info in self.torrent_info_list.values():
+        # for torrent_info in self.torrent_info_list.values():
+        for torrent_info in tqdm(self.torrent_info_list.values(), desc="Processing torrents (second pass)", unit=" torrent", ncols=120):
             self.set_torrent_info(torrent_info)
 
     def update_torrents(self):
 
         i = 0
-        print(f"\n=== Phase 3: Updating torrents\n")
+        print(f"\n=== Phase 3: Updating torrents ===")
         for torrent_info in self.torrent_info_list.values():
 
             if torrent_info.update_state == UpdateState(0):
@@ -82,10 +84,10 @@ class TorrentManager:
 
             i = i + 1
             if self.no_color:
-                print(f"=== Updating [{torrent_info.tracker_name}] torrent {torrent_info._name} ({torrent_info._hash})")
+                print(f"-- Updating [{torrent_info.tracker_name}] torrent {torrent_info._name} ({torrent_info._hash})")
             else:
                 print(
-                    f"=== Updating [{Fore.MAGENTA}{torrent_info.tracker_name}{Fore.RESET}] torrent {Fore.YELLOW}{torrent_info._name}{Fore.RESET} ({Fore.CYAN}{torrent_info._hash}{Fore.RESET})"
+                    f"-- Updating [{Fore.MAGENTA}{torrent_info.tracker_name}{Fore.RESET}] torrent {Fore.YELLOW}{torrent_info._name}{Fore.RESET} ({Fore.CYAN}{torrent_info._hash}{Fore.RESET})"
                 )
 
             # add tags
@@ -104,9 +106,9 @@ class TorrentManager:
                 self.qb_remove_category(torrent_info)
 
         if i > 0:
-            print(f"\nProcessed {len(self.torrent_info_list)} torrents and updated {i} torrents.\n")
+            print(f"\nProcessed {len(self.torrent_info_list)} torrents and updated {i} torrents.")
         else:
-            print(f"Processed {len(self.torrent_info_list)} torrents and updated {i} torrents.\n")
+            print(f"Processed {len(self.torrent_info_list)} torrents and updated {i} torrents.")
 
     def build_tag_to_hashes(self):
 
@@ -318,8 +320,8 @@ class TorrentManager:
                 print(f"qBittorrent: {qb.app.version}")
             else:
                 print(f"qBittorrent: {Fore.GREEN}{qb.app.version}{Fore.RESET}")
-            for k, v in qb.app.build_info.items():
-                print(f" -- {k}: {v}")
+            # for k, v in qb.app.build_info.items():
+            #     print(f" -- {k}: {v}")
             return qb
         except qbittorrentapi.exceptions.APIConnectionError as e:
             print(f"ERROR: {e}")
@@ -404,8 +406,11 @@ class TorrentManager:
             print(f"  Failed to set upload limit for {torrent_hash}")
 
     def move_orphaned(self):
-        print("=== Finding orphaned files")
+        print("\n=== Find and move orphaned files ===")
 
+        if not TorrentManager.Config_Manager.get('move_orphaned'):
+            print(f"\nSkipping because move_orphaned is false.")
+            return
         try:
             # Get orphaned destination path and format it
             orphan_dest = TorrentManager.Config_Manager.get('orphaned_destination')
@@ -420,7 +425,12 @@ class TorrentManager:
         ignore_files = {".ds_store", "thumbs.db"}  # Set of files to ignore
 
         for save_path in TorrentInfo.Unique_SavePaths:
+
+            if save_path in TorrentInfo.Config_Manager.get('excluded_save_paths'):
+                continue
+
             print(f"\nScanning {save_path}")
+            moved = 0
 
             try:
                 for root, _, filenames in os.walk(save_path):
@@ -438,7 +448,7 @@ class TorrentManager:
                             # Dry-run behavior vs actual move
                             if not self.dry_run:
                                 try:
-                                    print(f"  -- MOVING: {full_path} TO: {dest_path_parent}")
+                                    print(f"-- MOVING: {full_path} TO: {dest_path_parent}")
 
                                     # Create destination path if it doesn't exist
                                     os.makedirs(dest_path_parent, exist_ok=True)
@@ -449,24 +459,29 @@ class TorrentManager:
 
                                     # move file
                                     shutil.move(full_path, dest_path_parent)
+                                    moved += 1
+
                                 except (OSError, shutil.Error) as move_error:
-                                    print(f"     Error moving {full_path}: {move_error}")
+                                    print(f"   Error moving {full_path}: {move_error}")
                             else:
-                                print(f"  -- Will move: {full_path} TO: {dest_path_parent}")
+                                print(f"-- Will move: {full_path} TO: {dest_path_parent}")
 
                 # Remove empty directories after processing
                 self.remove_empty_dirs(save_path)
+                print(f"-- Moved {moved} files.")
 
             except Exception as e:
-                print(f"  -- Error scanning {save_path}: {e}")
+                print(f"-- Error scanning {save_path}: {e}")
 
 
     def remove_orphaned(self):
 
+        print(f"\n=== Remove orphaned files ===\n")
         try:
             # Get config value for file age threshold and validate
             remove_orphaned_age_days = TorrentManager.Config_Manager.get('remove_orphaned_age_days')
             if remove_orphaned_age_days < 0:
+                print(f"Skipping because remove_orphaned_age_days is set to {remove_orphaned_age_days}.\n")
                 return
         except KeyError as e:
             print(f"Error: Missing config for 'remove_orphaned_age_days': {e}")
@@ -481,7 +496,7 @@ class TorrentManager:
             days_in_seconds = remove_orphaned_age_days * 24 * 60 * 60
             directory = TorrentManager.Config_Manager.get('orphaned_destination')
             directory = util.format_path(directory)
-            print(f"\n=== Removing files older than {remove_orphaned_age_days} days in {directory} ===\n")
+            print(f"Removing files older than {remove_orphaned_age_days} days in {directory}")
         except KeyError as e:
             print(f"Error: Missing config for 'orphaned_destination': {e}")
             return
@@ -491,6 +506,7 @@ class TorrentManager:
 
         try:
             # Traverse through the directory and process files
+            removed = 0
             for root, _, files in os.walk(directory):
                 for file in files:
                     file_path = os.path.join(root, file)
@@ -505,22 +521,24 @@ class TorrentManager:
                         # If file is older than the threshold
                         if file_age > days_in_seconds:
                             if self.dry_run:
-                                print(f"  -- Will remove: {file_path}")
+                                print(f"-- Will remove: {file_path}")
                             else:
-                                print(f"  -- REMOVING: {file_path}")
+                                print(f"-- REMOVING: {file_path}")
                                 os.remove(file_path)
+                                removed += 1
 
                     except OSError as e:
-                        print(f"  -- Error accessing file {file_path}: {e}")
+                        print(f"-- Error accessing file {file_path}: {e}")
                     except Exception as e:
-                        print(f"  -- Error processing file {file_path}: {e}")
+                        print(f"-- Error processing file {file_path}: {e}")
 
             # Remove empty directories after processing
             self.remove_empty_dirs(directory)
+            print(f"-- Removed {removed} files.")
             print()
 
         except Exception as e:
-            print(f"  -- Error traversing directory {directory}: {e}")
+            print(f"-- Error traversing directory {directory}: {e}")
 
     def remove_empty_dirs(self, directory):
         try:
@@ -530,13 +548,13 @@ class TorrentManager:
                 if not dirnames and not filenames:
                     try:
                         if self.dry_run:
-                            print(f"  -- Will remove empty directory: {dirpath}")
+                            print(f"-- Will remove empty directory: {dirpath}")
                         else:
-                            print(f"  -- REMOVING empty directory: {dirpath}")
+                            print(f"-- REMOVING empty directory: {dirpath}")
                             os.rmdir(dirpath)
                     except OSError as e:
-                        print(f"  -- Error removing directory {dirpath}: {e}")
+                        print(f"-- Error removing directory {dirpath}: {e}")
                     except Exception as e:
-                        print(f"  -- Unexpected error while removing directory {dirpath}: {e}")
+                        print(f"-- Unexpected error while removing directory {dirpath}: {e}")
         except Exception as e:
-            print(f"  -- Error walking through directory {directory}: {e}")
+            print(f"-- Error walking through directory {directory}: {e}")
