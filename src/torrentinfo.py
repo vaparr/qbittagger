@@ -4,6 +4,7 @@ from enum import Enum, Flag, auto
 from collections import defaultdict
 from datetime import datetime
 
+from . import util
 
 class UpdateState(Flag):
     TAG_ADD = auto()
@@ -65,7 +66,7 @@ class TorrentInfo:
         self.update_upload_limit = 0
 
         # Track content_path
-        self.content_path = self.format_path(torrent_dict.content_path)
+        self.content_path = util.format_path(torrent_dict.content_path)
         TorrentInfo.ContentPath_Dict[self.content_path].append(self)
 
         # autobrr
@@ -141,16 +142,22 @@ class TorrentInfo:
         # Track save paths
         save_path = torrent_dict['save_path']
         for mapping in TorrentInfo.Config_Manager.get('path_mappings'):
-            save_path = save_path.replace(mapping['container_path'], mapping['host_path'])
-        self.save_path_host = self.format_path(save_path)
+            container_path = util.format_path(mapping['container_path'])
+            host_path = util.format_path(mapping['host_path'])
+            save_path = save_path.replace(container_path, host_path)
+        self.save_path_host = util.format_path(save_path)
         TorrentInfo.Unique_SavePaths.add(self.save_path_host)
 
-        # Add unique files and detect hardlinks, if enabled
-        self.is_hardlinked = False
+        # Add unique files, always do this regardless of hardlink detection
         for file in torrent_files:
             filename = os.path.join(self.save_path_host, file['name'])
             TorrentInfo.Unique_Files.add(filename)
-            if TorrentInfo.Config_Manager.get('tag_hardlink'):
+
+        # Detect hardlinks, if enabled
+        self.is_hardlinked = False
+        if TorrentInfo.Config_Manager.get('tag_hardlink'):
+            for file in torrent_files:
+                filename = os.path.join(self.save_path_host, file['name'])
                 if self.is_hard_link(filename):
                     self.is_hardlinked = True
                     break
@@ -247,11 +254,6 @@ class TorrentInfo:
 
         return f"{age_days} days, {age_hours} hours, {age_minutes} minutes"
 
-    def format_path(self, path):
-        if not path.endswith("/"):
-            path = path + "/"
-        return path
-
     def to_str(self, include_extended=False):
         # List of attributes to exclude from dynamic formatting
         excluded_attrs = {"torrent_dict", "torrent_files", "torrent_trackers", "torrent_trackers_filtered"}
@@ -273,9 +275,9 @@ class TorrentInfo:
 
             # Redaction
             magnet_reg = r"'magnet_uri': 'magnet:\?[^']+'"
-            tracker_reg = r"('(?:tracker|url)': 'https?:\/\/[^?]+)(\?)"
+            tracker_reg = r"('(?:tracker|url)': 'https?:\/\/[^/]+)(/.*)"
             formatted_str = re.sub(magnet_reg, "'magnet_uri': '<redacted>'", formatted_str)
-            formatted_str = re.sub(tracker_reg + r".*", r"\1?<redacted>'", formatted_str)
+            formatted_str = re.sub(tracker_reg, r"\1/<redacted>'", formatted_str)
         else:
             formatted_str = f"{str_attrs}"
 

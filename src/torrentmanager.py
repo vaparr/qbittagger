@@ -1,13 +1,16 @@
 import qbittorrentapi
-import json
 import sys
 import os
+import shutil
+import time
+
 from datetime import datetime, timedelta
 from colorama import Fore, Back, Style, init
 from tqdm import tqdm
 from collections import defaultdict
 
 from .torrentinfo import *
+from . import util
 
 class TorrentManager:
 
@@ -26,26 +29,37 @@ class TorrentManager:
         self.torrent_tag_hashes_list = defaultdict(list)
 
         # tracker config
-        self.tracker_options = self.load_trackers(tracker_json_path)
+        self.tracker_options = util.load_trackers(tracker_json_path)
 
         # connect to qb
         self.qb = self.connect_to_qb(self.server, self.port)
 
         # process torrents and create list of TorrentInfo objects
         print(f"\n=== Phase 1: Getting a list of torrents from qBitTorrent... ")
-        qb_torrents = self.qb.torrents_info()
+        try:
+            qb_torrents = self.qb.torrents_info()
+        except Exception as e:
+            print(f"ERROR! Failed to get torrent list from qBitTorrent: {e}")
+            print(f"Exiting!")
+            exit(1)  # Exit early if we can't fetch the torrents
+
         # for torrent_dict in qb_torrents:
         for torrent_dict in tqdm(qb_torrents, desc="Processing torrents", unit=" torrent", ncols=120):
 
             # get additional torrent info
-            torrent_files = self.qb.torrents_files(torrent_dict.hash)
-            torrent_trackers = self.qb.torrents_trackers(torrent_dict.hash)
+            try:
+                torrent_files = self.qb.torrents_files(torrent_dict.hash)
+                torrent_trackers = self.qb.torrents_trackers(torrent_dict.hash)
 
-            # create new TorrentInfo object and add it to dict
-            torrent_info = TorrentInfo(torrent_dict, torrent_files, torrent_trackers, self.tracker_options)
-            self.torrent_info_list[torrent_dict.hash] = torrent_info
+                # create new TorrentInfo object and add it to dict
+                self.torrent_info_list[torrent_dict.hash] = TorrentInfo(torrent_dict, torrent_files, torrent_trackers, self.tracker_options)
 
-        # store hashes per tag in a list
+            except Exception as e:
+                print(f"Error processing torrent {torrent_dict.name} (hash: {torrent_dict.hash}): {e}")
+                print(f"Exiting!")
+                exit(1)  # Exit early if we can't fetch the torrents
+
+        # store hashes per tag in a list, used for keep_last
         self.build_tag_to_hashes()
 
         # process the list for cross-seeds and deletes and set torrentinfo object props accordingly
@@ -202,18 +216,21 @@ class TorrentManager:
     def analyze_torrent(self, torrent_info: TorrentInfo):
 
         # Determine if cross-seeded
-        file_torrents = TorrentInfo.ContentPath_Dict[torrent_info.content_path]
-        if len(file_torrents) > 1:
-            if torrent_info.torrent_dict["downloaded"] == 0:
-                torrent_info.cross_seed_state = CrossSeedState.PEER
-            else:
-                torrent_info.cross_seed_state = CrossSeedState.PARENT
-        else:
+        if torrent_info.torrent_dict['amount_left'] > 0:
             torrent_info.cross_seed_state = CrossSeedState.NONE
+        else:
+            file_torrents = TorrentInfo.ContentPath_Dict[torrent_info.content_path]
+            if len(file_torrents) > 1:
+                if torrent_info.torrent_dict["downloaded"] == 0:
+                    torrent_info.cross_seed_state = CrossSeedState.PEER
+                else:
+                    torrent_info.cross_seed_state = CrossSeedState.PARENT
+            else:
+                torrent_info.cross_seed_state = CrossSeedState.NONE
 
-        # Add cross-seed hashes
-        for torrent in file_torrents:
-            torrent_info.cross_seed_hashes.append(torrent._hash)
+            # Add cross-seed hashes
+            for torrent in file_torrents:
+                torrent_info.cross_seed_hashes.append(torrent._hash)
 
         # Determine deletion
         if torrent_info.torrent_dict["force_start"]:
@@ -308,14 +325,7 @@ class TorrentManager:
             print(f"ERROR: {e}")
             sys.exit(1)
 
-    def load_trackers(self, tracker_json_path):
 
-        if not os.path.exists(tracker_json_path):
-            print(f"ERROR: Unable to find '{tracker_json_path}'")
-            exit(2)
-
-        with open(tracker_json_path, "r") as read_file:
-            return json.load(read_file)
 
     def qb_add_tag(self, torrent_info: TorrentInfo):
 
@@ -395,18 +405,138 @@ class TorrentManager:
 
     def move_orphaned(self):
         print("=== Finding orphaned files")
+
+        try:
+            # Get orphaned destination path and format it
+            orphan_dest = TorrentManager.Config_Manager.get('orphaned_destination')
+            orphan_dest = util.format_path(orphan_dest)
+        except KeyError as e:
+            print(f"Error: Missing config for orphaned destination: {e}")
+            return
+        except Exception as e:
+            print(f"Error: Failed to format orphaned destination: {e}")
+            return
+
+        ignore_files = {".ds_store", "thumbs.db"}  # Set of files to ignore
+
         for save_path in TorrentInfo.Unique_SavePaths:
             print(f"\nScanning {save_path}")
-            for root, _, filenames in os.walk(save_path):
-                for file in filenames:
-                    if file == ".DS_Store":
-                        continue
-                    full_path = os.path.join(root, file)
-                    if full_path not in TorrentInfo.Unique_Files:
-                        dest_dir = full_path.replace(save_path, TorrentInfo.Config_Manager.get('orphaned_destination'))
-                        dest_path = dest_dir
-                        print(F" -- MOVE: {full_path} ")
-                        print(F"      TO: {dest_path}")
+
+            try:
+                for root, _, filenames in os.walk(save_path):
+                    # Filter out ignored files
+                    filenames = [f for f in filenames if f.lower() not in ignore_files]
+
+                    for file in filenames:
+                        full_path = os.path.join(root, file)
+
+                        # Check if the file is orphaned
+                        if full_path not in TorrentInfo.Unique_Files:
+                            dest_path = full_path.replace(save_path, orphan_dest)
+                            dest_path_parent = dest_path.rsplit(os.sep, 1)[0]
+
+                            # Dry-run behavior vs actual move
+                            if not self.dry_run:
+                                try:
+                                    print(f"  -- MOVING: {full_path} TO: {dest_path_parent}")
+
+                                    # Create destination path if it doesn't exist
+                                    os.makedirs(dest_path_parent, exist_ok=True)
+
+                                    # remove if exists at destination
+                                    if os.path.exists(dest_path):
+                                        os.remove(dest_path)
+
+                                    # move file
+                                    shutil.move(full_path, dest_path_parent)
+                                except (OSError, shutil.Error) as move_error:
+                                    print(f"     Error moving {full_path}: {move_error}")
+                            else:
+                                print(f"  -- Will move: {full_path} TO: {dest_path_parent}")
+
+                # Remove empty directories after processing
+                self.remove_empty_dirs(save_path)
+
+            except Exception as e:
+                print(f"  -- Error scanning {save_path}: {e}")
+
 
     def remove_orphaned(self):
-        return None
+
+        try:
+            # Get config value for file age threshold and validate
+            remove_orphaned_age_days = TorrentManager.Config_Manager.get('remove_orphaned_age_days')
+            if remove_orphaned_age_days < 0:
+                return
+        except KeyError as e:
+            print(f"Error: Missing config for 'remove_orphaned_age_days': {e}")
+            return
+        except Exception as e:
+            print(f"Error: Failed to retrieve or validate 'remove_orphaned_age_days': {e}")
+            return
+
+        try:
+            # Calculate time threshold for orphan removal
+            current_time = time.time()
+            days_in_seconds = remove_orphaned_age_days * 24 * 60 * 60
+            directory = TorrentManager.Config_Manager.get('orphaned_destination')
+            directory = util.format_path(directory)
+            print(f"\n=== Removing files older than {remove_orphaned_age_days} days in {directory} ===\n")
+        except KeyError as e:
+            print(f"Error: Missing config for 'orphaned_destination': {e}")
+            return
+        except Exception as e:
+            print(f"Error: Failed to format 'orphaned_destination': {e}")
+            return
+
+        try:
+            # Traverse through the directory and process files
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    file_path = os.path.join(root, file)
+
+                    try:
+                        # Get the last modified time of the file
+                        file_mtime = os.path.getmtime(file_path)
+
+                        # Calculate file age
+                        file_age = current_time - file_mtime
+
+                        # If file is older than the threshold
+                        if file_age > days_in_seconds:
+                            if self.dry_run:
+                                print(f"  -- Will remove: {file_path}")
+                            else:
+                                print(f"  -- REMOVING: {file_path}")
+                                os.remove(file_path)
+
+                    except OSError as e:
+                        print(f"  -- Error accessing file {file_path}: {e}")
+                    except Exception as e:
+                        print(f"  -- Error processing file {file_path}: {e}")
+
+            # Remove empty directories after processing
+            self.remove_empty_dirs(directory)
+            print()
+
+        except Exception as e:
+            print(f"  -- Error traversing directory {directory}: {e}")
+
+    def remove_empty_dirs(self, directory):
+        try:
+            # Walk through directory tree from bottom-up to ensure empty directories are removed
+            for dirpath, dirnames, filenames in os.walk(directory, topdown=False):
+                # If the directory is empty (contains no subdirectories or files)
+                if not dirnames and not filenames:
+                    try:
+                        if self.dry_run:
+                            print(f"  -- Will remove empty directory: {dirpath}")
+                        else:
+                            print(f"  -- REMOVING empty directory: {dirpath}")
+                            os.rmdir(dirpath)
+                    except OSError as e:
+                        print(f"  -- Error removing directory {dirpath}: {e}")
+                    except Exception as e:
+                        print(f"  -- Unexpected error while removing directory {dirpath}: {e}")
+        except Exception as e:
+            print(f"  -- Error walking through directory {directory}: {e}")
