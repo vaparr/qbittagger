@@ -423,10 +423,11 @@ class TorrentManager:
             return
 
         ignore_files = {".ds_store", "thumbs.db"}  # Set of files to ignore
+        excluded_save_paths = TorrentInfo.Config_Manager.get('excluded_save_paths', None)
 
         for save_path in TorrentInfo.Unique_SavePaths:
 
-            if save_path in TorrentInfo.Config_Manager.get('excluded_save_paths'):
+            if excluded_save_paths and save_path in excluded_save_paths:
                 continue
 
             print(f"\nScanning {save_path}")
