@@ -335,16 +335,10 @@ class TorrentManager:
         for tag in torrent_info.update_tags_add:
             try:
                 if self.dry_run:
-                    if self.no_color:
-                        print(f"  [DRY RUN] Would add tag '{tag}' to torrent {torrent_hash}")
-                    else:
-                        print(f"  [DRY RUN] Would add tag '{Fore.GREEN}{tag}{Fore.RESET}' to torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+                    print(f"  [DRY RUN] Will add tag '{tag if self.no_color else f'{Fore.GREEN}{tag}{Fore.RESET}'}' to torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                 else:
                     self.qb.torrents_add_tags(tag, torrent_hash)
-                    if self.no_color:
-                        print(f"  Adding tag '{tag}' to torrent {torrent_hash}")
-                    else:
-                        print(f"  Adding tag '{Fore.GREEN}{tag}{Fore.RESET}' to torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+                    print(f"  Adding tag '{tag if self.no_color else f'{Fore.GREEN}{tag}{Fore.RESET}'}' to torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
             except:
                 print(f"  Failed to set tag '{tag}' for {torrent_hash}")
 
@@ -354,16 +348,10 @@ class TorrentManager:
         torrent_hash = torrent_info._hash
         try:
             if self.dry_run:
-                if self.no_color:
-                    print(f"  [DRY RUN] Would remove category '{category}' on torrent {torrent_hash}")
-                else:
-                    print(f"  [DRY RUN] Would remove category '{Fore.GREEN}{category}{Fore.RESET}' on torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+                print(f"  [DRY RUN] Will remove category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
             else:
+                print(f"  Removing category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                 self.qb.torrents_set_category("", torrent_hash)
-                if self.no_color:
-                    print(f"  Removing category '{category}' on torrent {torrent_hash}")
-                else:
-                    print(f"  Removing category '{Fore.GREEN}{category}{Fore.RESET}' on torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
         except:
             print(f"  Failed to removing category on torrent for {torrent_hash}")
 
@@ -373,16 +361,10 @@ class TorrentManager:
         for tag in torrent_info.update_tags_remove:
             try:
                 if self.dry_run:
-                    if self.no_color:
-                        print(f"  [DRY RUN] Would remove tag '{tag}' from torrent {torrent_hash}")
-                    else:
-                        print(f"  [DRY RUN] Would remove tag '{Fore.RED}{tag}{Fore.RESET}' from torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+                    print(f"  [DRY RUN] Will remove tag '{tag if self.no_color else f'{Fore.RED}{tag}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                 else:
+                    print(f"  Removing tag '{tag if self.no_color else f'{Fore.RED}{tag}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                     self.qb.torrents_remove_tags(tag, torrent_hash)
-                    if self.no_color:
-                        print(f"  Removing tag '{tag}' from torrent {torrent_hash}")
-                    else:
-                        print(f"  Removing tag '{Fore.RED}{tag}{Fore.RESET}' from torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
             except:
                 print(f"  Failed to remove tag '{tag}' from {torrent_hash}")
 
@@ -392,15 +374,9 @@ class TorrentManager:
             upload_limit = torrent_info.update_upload_limit
             torrent_hash = torrent_info._hash
             if self.dry_run:
-                if self.no_color:
-                    print(f"  [DRY RUN] Would set upload_limit to '{upload_limit}' for torrent {torrent_hash}")
-                else:
-                    print(f"  [DRY RUN] Would set upload_limit to '{Fore.GREEN}{upload_limit}{Fore.RESET}' for torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+                print(f"  [DRY RUN] Will set upload_limit to '{upload_limit if self.no_color else f'{Fore.GREEN}{upload_limit}{Fore.RESET}'}' for torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
             else:
-                if self.no_color:
-                    print(f"  Setting upload_limit to '{upload_limit}' for torrent {torrent_hash}")
-                else:
-                    print(f"  Setting upload_limit to '{Fore.GREEN}{upload_limit}{Fore.RESET}' for torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+                print(f"  Setting upload_limit to '{upload_limit if self.no_color else f'{Fore.GREEN}{upload_limit}{Fore.RESET}'}' for torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                 self.qb.torrents_set_upload_limit(upload_limit, torrent_hash)
         except:
             print(f"  Failed to set upload limit for {torrent_hash}")
@@ -440,6 +416,7 @@ class TorrentManager:
 
                     for file in filenames:
                         full_path = os.path.join(root, file)
+                        root2 = util.format_path(root)
 
                         # Check if the file is orphaned
                         if full_path not in TorrentInfo.Unique_Files:
@@ -447,10 +424,12 @@ class TorrentManager:
                             dest_path_parent = dest_path.rsplit(os.sep, 1)[0]
 
                             # Dry-run behavior vs actual move
-                            if not self.dry_run:
+                            moved += 1
+                            if self.dry_run:
+                                print(f"-- [DRY RUN] Will move {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
+                            else:
+                                print(f"-- MOVING {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
                                 try:
-                                    print(f"-- MOVING: {full_path} TO: {dest_path_parent}")
-
                                     # Create destination path if it doesn't exist
                                     os.makedirs(dest_path_parent, exist_ok=True)
 
@@ -460,16 +439,14 @@ class TorrentManager:
 
                                     # move file
                                     shutil.move(full_path, dest_path_parent)
-                                    moved += 1
 
                                 except (OSError, shutil.Error) as move_error:
                                     print(f"   Error moving {full_path}: {move_error}")
-                            else:
-                                print(f"-- Will move: {full_path} TO: {dest_path_parent}")
 
                 # Remove empty directories after processing
                 self.remove_empty_dirs(save_path)
-                print(f"-- Moved {moved} files.")
+                print(f"-- {'[DRY RUN] Will move' if self.dry_run else 'Moved'} {moved} files.")
+
 
             except Exception as e:
                 print(f"-- Error scanning {save_path}: {e}")
@@ -511,6 +488,7 @@ class TorrentManager:
             for root, _, files in os.walk(directory):
                 for file in files:
                     file_path = os.path.join(root, file)
+                    root2 = util.format_path(root)
 
                     try:
                         # Get the last modified time of the file
@@ -521,12 +499,12 @@ class TorrentManager:
 
                         # If file is older than the threshold
                         if file_age > days_in_seconds:
+                            removed += 1
                             if self.dry_run:
-                                print(f"-- Will remove: {file_path}")
+                                print(f"-- [DRY RUN] Will remove {file_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'}")
                             else:
-                                print(f"-- REMOVING: {file_path}")
+                                print(f"-- Removing {file_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'}")
                                 os.remove(file_path)
-                                removed += 1
 
                     except OSError as e:
                         print(f"-- Error accessing file {file_path}: {e}")
@@ -535,7 +513,7 @@ class TorrentManager:
 
             # Remove empty directories after processing
             self.remove_empty_dirs(directory)
-            print(f"-- Removed {removed} files.")
+            print(f"-- {'[DRY RUN] Will remove' if self.dry_run else 'Removed'} {removed} files.")
             print()
 
         except Exception as e:
@@ -549,9 +527,9 @@ class TorrentManager:
                 if not dirnames and not filenames:
                     try:
                         if self.dry_run:
-                            print(f"-- Will remove empty directory: {dirpath}")
+                            print(f"-- [DRY RUN] Will remove empty directory {dirpath if self.no_color else f'{Fore.YELLOW}{dirpath}{Fore.RESET}'}")
                         else:
-                            print(f"-- REMOVING empty directory: {dirpath}")
+                            print(f"-- Removing empty directory {dirpath if self.no_color else f'{Fore.YELLOW}{dirpath}{Fore.RESET}'}")
                             os.rmdir(dirpath)
                     except OSError as e:
                         print(f"-- Error removing directory {dirpath}: {e}")
