@@ -520,6 +520,8 @@ class TorrentManager:
             print(f"-- Error traversing directory {directory}: {e}")
 
     def remove_empty_dirs(self, directory):
+        dirs_removed = False  # Flag to track if any directory was removed during the current pass
+
         try:
             # Walk through directory tree from bottom-up to ensure empty directories are removed
             for dirpath, dirnames, filenames in os.walk(directory, topdown=False):
@@ -531,9 +533,15 @@ class TorrentManager:
                         else:
                             print(f"-- Removing empty directory {dirpath if self.no_color else f'{Fore.YELLOW}{dirpath}{Fore.RESET}'}")
                             os.rmdir(dirpath)
+                            if not os.path.exists(dirpath):  # Ensure directory was actually removed
+                                dirs_removed = True  # Set flag to True only when directory is actually removed
                     except OSError as e:
                         print(f"-- Error removing directory {dirpath}: {e}")
                     except Exception as e:
                         print(f"-- Unexpected error while removing directory {dirpath}: {e}")
         except Exception as e:
             print(f"-- Error walking through directory {directory}: {e}")
+
+        # Recursively call the function if directories were removed during this pass
+        if dirs_removed:
+            self.remove_empty_dirs(directory)
