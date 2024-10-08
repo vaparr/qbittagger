@@ -129,23 +129,23 @@ class TorrentManager:
         if torrent_info.tracker_name:
             torrent_info.torrent_add_tag(torrent_info.tracker_name)
 
-        unregistered_tag = "_unregistered"
+        unregistered_tag = TagNames.UNREGISTERED.value
         torrent_info.torrent_add_tag(unregistered_tag) if torrent_info.is_unregistered else torrent_info.torrent_remove_tag(unregistered_tag)
 
-        tracker_error_tag = "_tracker_error"
+        tracker_error_tag = TagNames.TRACKER_ERROR.value
         (
             torrent_info.torrent_add_tag(tracker_error_tag)
             if torrent_info.is_tracker_error and not torrent_info.is_unregistered
             else torrent_info.torrent_remove_tag(tracker_error_tag)
         )
 
-        rarred_tag = "_rarred"
+        rarred_tag = TagNames.RARRED.value
         torrent_info.torrent_add_tag(rarred_tag) if torrent_info.is_rarred else torrent_info.torrent_remove_tag(rarred_tag)
 
-        season_pack_tag = "_season_pack"
+        season_pack_tag = TagNames.SEASON_PACK.value
         torrent_info.torrent_add_tag(season_pack_tag) if torrent_info.is_season_pack else torrent_info.torrent_remove_tag(season_pack_tag)
 
-        throttled_tag = "_throttled"
+        throttled_tag = TagNames.THROTTLED.value
         torrent_info.torrent_add_tag(throttled_tag) if torrent_info.torrent_dict["up_limit"] > 0 else torrent_info.torrent_remove_tag(throttled_tag)
 
         # Cross-seeded, orphaned peers
@@ -173,8 +173,8 @@ class TorrentManager:
 
         # hardlink
         if TorrentManager.Config_Manager.get('tag_hardlink'):
-            hl_tag_add = "_hardlink" if torrent_info.is_hardlinked else "_no_hardlink"
-            hl_tag_remove = "_no_hardlink" if torrent_info.is_hardlinked else "_hardlink"
+            hl_tag_add = TagNames.HARDLINK.value if torrent_info.is_hardlinked else TagNames.NO_HARDLINK.value
+            hl_tag_remove = TagNames.NO_HARDLINK.value if torrent_info.is_hardlinked else TagNames.HARDLINK.value
             torrent_info.torrent_add_tag(hl_tag_add)
             torrent_info.torrent_remove_tag(hl_tag_remove)
 
@@ -182,7 +182,7 @@ class TorrentManager:
     def update_cross_seed_tags(self, torrent_info):
 
         # _cs_all tag
-        cs_all_tag = "_cs_all"
+        cs_all_tag = TagNames.CROSS_SEED_ALL.value
         torrent_info.torrent_add_tag(cs_all_tag) if torrent_info.cross_seed_state != CrossSeedState.NONE else torrent_info.torrent_remove_tag(cs_all_tag)
 
         # First, check for NONE and remove all cross-seed tags
@@ -245,7 +245,7 @@ class TorrentManager:
         if torrent_info.delete_state == DeleteState.NONE:
             # Set tracker delete days, default to 0 if None
             tracker_delete_days = torrent_info.tracker_opts.get("delete", 0)
-            if torrent_info.is_autobrr_torrent:
+            if torrent_info.has_autobrr_tag:
                 tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or TorrentManager.Config_Manager.get('default_autobrr_delete_days')
 
             # Only calculate if we have a valid completion timestamp and non-zero delete days
@@ -261,26 +261,31 @@ class TorrentManager:
 
         # Not cross-seeded
         if torrent_info.cross_seed_state == CrossSeedState.NONE:
-            if torrent_info.is_autobrr_torrent:
+            if torrent_info.has_autobrr_tag and torrent_info.is_private:
                 torrent_info.delete_state = DeleteState.AUTOBRR_DELETE
             else:
                 if torrent_info.tracker_name == "BTN" and torrent_info.is_season_pack:
                     torrent_info.delete_state = DeleteState.NEVER
+                elif torrent_info.has_hardlink_tag and torrent_info.is_private:
+                    torrent_info.delete_state = DeleteState.HARDLINK_DELETE
                 else:
                     torrent_info.delete_state = DeleteState.DELETE_IF_NEEDED if torrent_info.is_polite_to_seed else DeleteState.READY
 
         # Cross-seeded, decide based on parent's state
         if torrent_info.cross_seed_state == CrossSeedState.PARENT:
-            if torrent_info.is_autobrr_torrent:
+            if torrent_info.has_autobrr_tag and torrent_info.is_private:
                 for cross_hash in torrent_info.cross_seed_hashes:
                     self.torrent_info_list[cross_hash].delete_state = DeleteState.AUTOBRR_DELETE
             else:
                 # Determine if BTN is involved in cross-seeds
                 is_btn_involved = any(self.torrent_info_list[cross_hash].tracker_name == "BTN" for cross_hash in torrent_info.cross_seed_hashes)
-                # Mark deletion state
+
                 if torrent_info.is_season_pack and is_btn_involved:
                     for cross_hash in torrent_info.cross_seed_hashes:
                         self.torrent_info_list[cross_hash].delete_state = DeleteState.NEVER
+                elif torrent_info.has_hardlink_tag and torrent_info.is_private:
+                    for cross_hash in torrent_info.cross_seed_hashes:
+                        self.torrent_info_list[cross_hash].delete_state = DeleteState.HARDLINK_DELETE
                 else:
                     for cross_hash in torrent_info.cross_seed_hashes:
                         self.torrent_info_list[cross_hash].delete_state = DeleteState.READY
@@ -294,9 +299,9 @@ class TorrentManager:
             relevant_hashes = [
                 h
                 for h in self.torrent_tag_hashes_list.get(torrent_info.tracker_name.strip(), [])
-                if not self.torrent_info_list[h].is_autobrr_torrent
+                if self.torrent_info_list[h].cross_seed_state == CrossSeedState.NONE
+                and not self.torrent_info_list[h].has_autobrr_tag
                 and self.torrent_info_list[h].torrent_dict.get("size", 0) <= 10 * 1024**3  # 10GB in bytes
-                and self.torrent_info_list[h].cross_seed_state == CrossSeedState.NONE
             ]
 
             # Sort torrents by their added_on time

@@ -4,7 +4,7 @@ import argparse
 from collections import OrderedDict
 from src.config import ConfigManager
 from src.torrentmanager import TorrentManager
-from src.torrentinfo import TorrentInfo
+from src.torrentinfo import *
 
 
 print()
