@@ -26,11 +26,14 @@ class TorrentManager:
         self.torrent_info_list = defaultdict(list)
         self.torrent_tag_hashes_list = defaultdict(list)
 
-        # tracker config
-        self.tracker_options = util.load_trackers(tracker_json_path)
-
         # connect to qb
         self.qb = self.connect_to_qb(self.server, self.port)
+
+        # tracker config
+        if tracker_json_path:
+            self.tracker_options = util.load_trackers(tracker_json_path)
+
+    def get_torrents(self):
 
         # process torrents and create list of TorrentInfo objects
         print(f"\n=== Phase 1: Getting a list of torrents from qBitTorrent ===")
@@ -59,6 +62,8 @@ class TorrentManager:
 
         # store hashes per tag in a list, used for keep_last
         self.build_tag_to_hashes()
+
+    def analyze_torrents(self):
 
         # process the list for cross-seeds and deletes and set torrentinfo object props accordingly
         print(f"\n=== Phase 2: Analyzing torrents ===")
@@ -238,7 +243,7 @@ class TorrentManager:
 
         # Check if it's unregistered
         if torrent_info.is_unregistered and torrent_info.cross_seed_state == CrossSeedState.NONE:
-            torrent_info.delete_state = DeleteState.READY
+            torrent_info.delete_state = DeleteState.DELETE
 
         if torrent_info.delete_state == DeleteState.NONE:
             # Set tracker delete days, default to 0 if None

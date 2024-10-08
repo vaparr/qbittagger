@@ -48,6 +48,8 @@ if __name__ == "__main__":
     util.Config_Manager = config_manager
 
     manager = TorrentManager(args.dry_run, args.no_color, args.tracker_config)
+    manager.get_torrents()
+    manager.analyze_torrents()
     manager.update_torrents()
     manager.move_orphaned()
     manager.remove_orphaned()
