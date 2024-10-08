@@ -14,13 +14,11 @@ from . import util
 
 class TorrentManager:
 
-    Config_Manager = None
-
     def __init__(self, dry_run, no_color, tracker_json_path):
 
         # args
-        self.server = TorrentManager.Config_Manager.get("server")
-        self.port = TorrentManager.Config_Manager.get("port")
+        self.server = util.Config_Manager.get("server")
+        self.port = util.Config_Manager.get("port")
         self.dry_run = dry_run
         self.no_color = no_color
 
@@ -172,7 +170,7 @@ class TorrentManager:
             torrent_info.torrent_remove_category()
 
         # hardlink
-        if TorrentManager.Config_Manager.get('tag_hardlink'):
+        if util.Config_Manager.get('tag_hardlink'):
             hl_tag_add = TagNames.HARDLINK.value if torrent_info.is_hardlinked else TagNames.NO_HARDLINK.value
             hl_tag_remove = TagNames.NO_HARDLINK.value if torrent_info.is_hardlinked else TagNames.HARDLINK.value
             torrent_info.torrent_add_tag(hl_tag_add)
@@ -246,7 +244,7 @@ class TorrentManager:
             # Set tracker delete days, default to 0 if None
             tracker_delete_days = torrent_info.tracker_opts.get("delete", 0)
             if torrent_info.has_autobrr_tag:
-                tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or TorrentManager.Config_Manager.get('default_autobrr_delete_days')
+                tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or util.Config_Manager.get('default_autobrr_delete_days')
 
             # Only calculate if we have a valid completion timestamp and non-zero delete days
             if tracker_delete_days > 0 and torrent_info.torrent_dict["completion_on"] > 1000000000:
@@ -389,12 +387,12 @@ class TorrentManager:
     def move_orphaned(self):
         print("\n=== Find and move orphaned files ===")
 
-        if not TorrentManager.Config_Manager.get('move_orphaned'):
+        if not util.Config_Manager.get('move_orphaned'):
             print(f"\nSkipping because move_orphaned is false.")
             return
         try:
             # Get orphaned destination path and format it
-            orphan_dest = TorrentManager.Config_Manager.get('orphaned_destination')
+            orphan_dest = util.Config_Manager.get('orphaned_destination')
             orphan_dest = util.format_path(orphan_dest)
         except KeyError as e:
             print(f"Error: Missing config for orphaned destination: {e}")
@@ -404,7 +402,7 @@ class TorrentManager:
             return
 
         ignore_files = {".ds_store", "thumbs.db"}  # Set of files to ignore
-        excluded_save_paths = TorrentInfo.Config_Manager.get('excluded_save_paths', None)
+        excluded_save_paths = util.Config_Manager.get('excluded_save_paths', None)
 
         for save_path in TorrentInfo.Unique_SavePaths:
 
@@ -462,7 +460,7 @@ class TorrentManager:
         print(f"\n=== Remove orphaned files ===\n")
         try:
             # Get config value for file age threshold and validate
-            remove_orphaned_age_days = TorrentManager.Config_Manager.get('remove_orphaned_age_days')
+            remove_orphaned_age_days = util.Config_Manager.get('remove_orphaned_age_days')
             if remove_orphaned_age_days < 0:
                 print(f"Skipping because remove_orphaned_age_days is set to {remove_orphaned_age_days}.\n")
                 return
@@ -477,7 +475,7 @@ class TorrentManager:
             # Calculate time threshold for orphan removal
             current_time = time.time()
             days_in_seconds = remove_orphaned_age_days * 24 * 60 * 60
-            directory = TorrentManager.Config_Manager.get('orphaned_destination')
+            directory = util.Config_Manager.get('orphaned_destination')
             directory = util.format_path(directory)
             print(f"Removing files older than {remove_orphaned_age_days} days in {directory}")
         except KeyError as e:

@@ -1,6 +1,8 @@
 import json
 import os
 
+Config_Manager = None
+
 def load_trackers(tracker_json_path):
 
     if not os.path.exists(tracker_json_path):

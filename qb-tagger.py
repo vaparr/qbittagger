@@ -1,11 +1,11 @@
 
 import argparse
-
 from collections import OrderedDict
+
 from src.config import ConfigManager
 from src.torrentmanager import TorrentManager
 from src.torrentinfo import *
-
+from src import util
 
 print()
 header = "|| QBit-Tagger version 2.0 ||"
@@ -45,9 +45,7 @@ if __name__ == "__main__":
     # Initialize the ConfigManager with the config file path and default values
     config_manager = ConfigManager(args.config, default_config)
     config_manager.save() # save the file back to populate missing settings in config.yaml
-
-    # set config for TorrentManager and TorrentInfo
-    TorrentManager.Config_Manager = TorrentInfo.Config_Manager = config_manager
+    util.Config_Manager = config_manager
 
     manager = TorrentManager(args.dry_run, args.no_color, args.tracker_config)
     manager.update_torrents()

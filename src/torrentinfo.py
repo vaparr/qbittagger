@@ -45,7 +45,6 @@ class TagNames(Enum):
 class TorrentInfo:
 
     # static variables
-    Config_Manager = None
     ContentPath_Dict = defaultdict(list)
     Unique_Files = set()
     Unique_SavePaths = set()
@@ -154,7 +153,7 @@ class TorrentInfo:
 
         # Track save paths
         save_path = torrent_dict['save_path']
-        for mapping in TorrentInfo.Config_Manager.get('path_mappings'):
+        for mapping in util.Config_Manager.get('path_mappings'):
             container_path = util.format_path(mapping['container_path'])
             host_path = util.format_path(mapping['host_path'])
             save_path = save_path.replace(container_path, host_path)
@@ -168,7 +167,7 @@ class TorrentInfo:
 
         # Detect hardlinks, if enabled
         self.is_hardlinked = False
-        if TorrentInfo.Config_Manager.get('tag_hardlink'):
+        if util.Config_Manager.get('tag_hardlink'):
             for file in torrent_files:
                 filename = os.path.join(self.save_path_host, file['name'])
                 if self.is_hard_link(filename):
@@ -238,7 +237,7 @@ class TorrentInfo:
 
     def torrent_remove_category(self):
 
-        if not TorrentInfo.Config_Manager.get('remove_category_for_bad_torrents'):
+        if not util.Config_Manager.get('remove_category_for_bad_torrents'):
             return
 
         if (self.torrent_dict["category"]) != "" and (self.torrent_dict["category"]) != "autobrr":
