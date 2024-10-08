@@ -14,33 +14,34 @@ class UpdateState(Flag):
 
 
 class CrossSeedState(Enum):
-    NONE = "_cs_none"
-    PARENT = "_cs_parent"
-    PEER = "_cs_peer"
-    ORPHAN = "_cs_orphan"
+    NONE = "#_cs_none"
+    PARENT = "#_cs_parent"
+    PEER = "#_cs_peer"
+    ORPHAN = "#_cs_orphan"
 
 
 class DeleteState(Enum):
-    NONE = "_delete_none"
-    DELETE = "_delete"
-    READY = "_delete_ready"
-    DELETE_IF_NEEDED = "_delete_if_needed"
-    KEEP_LAST = "_keep_last"
-    AUTOBRR_DELETE = "_delete_autobrr"
-    HARDLINK_DELETE = "_delete_hardlink"
-    NEVER = "_delete_never"
+    NONE = "#_delete_none"
+    DELETE = "#_delete"
+    READY = "#_delete_ready"
+    DELETE_IF_NEEDED = "#_delete_if_needed"
+    KEEP_LAST = "#_keep_last"
+    AUTOBRR_DELETE = "#_delete_autobrr"
+    HARDLINK_DELETE = "#_delete_hardlink"
+    NEVER = "#_delete_never"
 
 class TagNames(Enum):
-    UNREGISTERED = "_unregistered"
-    TRACKER_ERROR = "_tracker_error"
-    RARRED = "_rarred"
-    SEASON_PACK = "_season_pack"
-    THROTTLED = "_throttled"
-    HARDLINK = "_hardlink"
-    NO_HARDLINK = "_no_hardlink"
-    CROSS_SEED_ALL = "_cs_all"
-    AUTOBRR = "autobrr"
+    UNREGISTERED = "#_unregistered"
+    TRACKER_ERROR = "#_tracker_error"
+    RARRED = "#_rarred"
+    SEASON_PACK = "#_season_pack"
+    THROTTLED = "#_throttled"
+    HARDLINK = "#_hardlink"
+    NO_HARDLINK = "#_no_hardlink"
+    CROSS_SEED_ALL = "#_cs_all"
 
+class TagNamesExternal(Enum):
+    AUTOBRR = "autobrr"
 
 class TorrentInfo:
 
@@ -81,7 +82,7 @@ class TorrentInfo:
         TorrentInfo.ContentPath_Dict[self.content_path].append(self)
 
         # autobrr
-        self.has_autobrr_tag = TagNames.AUTOBRR.value in self.current_tags
+        self.has_autobrr_tag = TagNamesExternal.AUTOBRR.value in self.current_tags
         self.has_hardlink_tag = TagNames.HARDLINK.value in self.current_tags
 
         # private/unregistered based on tracker message
