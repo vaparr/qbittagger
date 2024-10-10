@@ -79,7 +79,7 @@ class TorrentManager:
     def update_torrents(self):
 
         i = 0
-        print(f"\n=== Phase 3: Updating torrents ===")
+        print(f"\n=== Update torrents ===\n")
         for torrent_info in self.torrent_info_list.values():
 
             if torrent_info.update_state == UpdateState(0):
@@ -87,11 +87,9 @@ class TorrentManager:
 
             i = i + 1
             if self.no_color:
-                print(f"-- Updating [{torrent_info.tracker_name}] torrent {torrent_info._name} ({torrent_info._hash})")
+                print(f"++ Updating [{torrent_info.tracker_name}] torrent {torrent_info._name} ({torrent_info._hash})")
             else:
-                print(
-                    f"-- Updating [{Fore.MAGENTA}{torrent_info.tracker_name}{Fore.RESET}] torrent {Fore.YELLOW}{torrent_info._name}{Fore.RESET} ({Fore.CYAN}{torrent_info._hash}{Fore.RESET})"
-                )
+                print(f"++ Updating [{Fore.MAGENTA}{torrent_info.tracker_name}{Fore.RESET}] torrent {Fore.YELLOW}{torrent_info._name}{Fore.RESET} ({Fore.CYAN}{torrent_info._hash}{Fore.RESET})")
 
             # add tags
             if UpdateState.TAG_ADD in torrent_info.update_state:
@@ -546,6 +544,7 @@ class TorrentManager:
             return
 
         total_size = 0
+        removed = 0
         backup_dest = auto_delete_config['backup_destination']
         if not backup_dest:
             print(f"backup_destination is not specified for auto-delete. Skipping.")
@@ -562,6 +561,7 @@ class TorrentManager:
                 torrent_size = torrent_info.torrent_dict['size']
                 total_size += torrent_size
                 formatted_size = util.format_bytes(torrent_size)
+                removed += 1
                 if self.dry_run:
                     print(f"-- [DRY RUN] Will remove [{matching_tag if self.no_color else f'{Fore.GREEN}{matching_tag}{Fore.RESET}'}] '{torrent_name if self.no_color else f'{Fore.YELLOW}{torrent_name}{Fore.RESET}'}' ({torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}) torrent with size '{formatted_size if self.no_color else f'{Fore.GREEN}{formatted_size}{Fore.RESET}'}'")
                 else:
@@ -577,6 +577,6 @@ class TorrentManager:
 
         print()
         if self.dry_run:
-            print(f"[DRY RUN] Total size of removed torrents with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")
+            print(f"[DRY RUN] Total size of removed torrents [{removed}] with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")
         else:
-            print(f"Total size of removed torrents with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")
+            print(f"Total size of removed torrents [{removed}] with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")

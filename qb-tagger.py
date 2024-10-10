@@ -22,6 +22,8 @@ if __name__ == "__main__":
     parser.add_argument("-op", "--operation", default=None, choices=('update-tags', 'move-orphaned', 'auto-delete'), action="append", help="Execution mode.")
 
     args = parser.parse_args()
+    print(f"DRY-RUN: {args.dry_run}")
+    print(f"CONFIG: {args.config}")
 
     default_config = OrderedDict([
         ('server', 'localhost'),
@@ -78,7 +80,7 @@ if __name__ == "__main__":
         manager.auto_delete_torrents()
 
     print()
-    
+
     if args.output_hash:
         hash_list = [h.strip() for h in args.output_hash.split(",")]  # Split and strip whitespaces
         for torrent_hash in hash_list:
