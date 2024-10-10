@@ -2,7 +2,6 @@ import re
 import os
 from enum import Enum, Flag, auto
 from collections import defaultdict
-from datetime import datetime
 
 from . import util
 
@@ -40,9 +39,6 @@ class TagNames(Enum):
     NO_HARDLINK = "#_no_hardlink"
     CROSS_SEED_ALL = "#_cs_all"
 
-class TagNamesExternal(Enum):
-    AUTOBRR = "autobrr"
-
 class TorrentInfo:
 
     # static variables
@@ -63,7 +59,9 @@ class TorrentInfo:
         # torrent props
         self._hash = torrent_dict.hash
         self._name = torrent_dict.name
-        self._torrent_age = self.get_age(torrent_dict.added_on)
+        self._torrent_age = util.get_age(torrent_dict.added_on)
+        self.torrent_added_since_days = util.days_since(torrent_dict.added_on)
+        self.torrent_completed_since_days = util.days_since(torrent_dict.completion_on)
         self.current_tags = [t.strip() for t in torrent_dict.get("tags", "").split(",")]
 
         # torrent state
@@ -82,7 +80,12 @@ class TorrentInfo:
         TorrentInfo.ContentPath_Dict[self.content_path].append(self)
 
         # autobrr
-        self.has_autobrr_tag = TagNamesExternal.AUTOBRR.value in self.current_tags
+        self.has_autobrr_tag = False
+        autobrr_config = util.Config_Manager.get('autobrr')
+        if autobrr_config['enabled']:
+            self.has_autobrr_tag = autobrr_config['autobrr_tag_name'] in self.current_tags
+
+        # hardlink tag
         self.has_hardlink_tag = TagNames.HARDLINK.value in self.current_tags
 
         # private/unregistered based on tracker message
@@ -132,13 +135,16 @@ class TorrentInfo:
 
         # Is rarred?
         self.is_rarred = False
-        for file in self.torrent_files:
-            if file.name.endswith(".rar"):
-                self.is_rarred = True
-                break
+        if self.torrent_files:
+            for file in self.torrent_files:
+                if file.name.endswith(".rar"):
+                    self.is_rarred = True
+                    break
 
         # Has multiple files?
-        self.is_multi_file = len(self.torrent_files) > 1
+        self.is_multi_file = False
+        if self.torrent_files:
+            self.is_multi_file = len(self.torrent_files) > 1
 
         # Season pack?
         self.is_season_pack = False
@@ -154,22 +160,24 @@ class TorrentInfo:
 
         # Track save paths
         save_path = torrent_dict['save_path']
-        for mapping in util.Config_Manager.get('path_mappings'):
-            container_path = util.format_path(mapping['container_path'])
-            host_path = util.format_path(mapping['host_path'])
-            save_path = save_path.replace(container_path, host_path)
+        if util.Config_Manager.get('path_mappings'):
+            for mapping in util.Config_Manager.get('path_mappings'):
+                container_path = util.format_path(mapping['container_path'])
+                host_path = util.format_path(mapping['host_path'])
+                save_path = save_path.replace(container_path, host_path)
         self.save_path_host = util.format_path(save_path)
         TorrentInfo.Unique_SavePaths.add(self.save_path_host)
 
         # Add unique files, always do this regardless of hardlink detection
-        for file in torrent_files:
-            filename = os.path.join(self.save_path_host, file['name'])
-            TorrentInfo.Unique_Files.add(filename)
+        if self.torrent_files:
+            for file in self.torrent_files:
+                filename = os.path.join(self.save_path_host, file['name'])
+                TorrentInfo.Unique_Files.add(filename)
 
         # Detect hardlinks, if enabled
         self.is_hardlinked = False
-        if util.Config_Manager.get('tag_hardlink'):
-            for file in torrent_files:
+        if util.Config_Manager.get('options')['tag_hardlink'] and self.torrent_files:
+            for file in self.torrent_files:
                 filename = os.path.join(self.save_path_host, file['name'])
                 if self.is_hard_link(filename):
                     self.is_hardlinked = True
@@ -238,7 +246,7 @@ class TorrentInfo:
 
     def torrent_remove_category(self):
 
-        if not util.Config_Manager.get('remove_category_for_bad_torrents'):
+        if not util.Config_Manager.get('options')['remove_category_for_bad_torrents']:
             return
 
         if (self.torrent_dict["category"]) != "" and (self.torrent_dict["category"]) != "autobrr":
@@ -254,18 +262,6 @@ class TorrentInfo:
         if self.torrent_dict["up_limit"] != up_limit:
             self.update_upload_limit = up_limit
             self.update_state |= UpdateState.UPLOAD_LIMIT
-
-    def get_age(self, added_on):
-
-        # Calculate age in seconds (Current time in seconds since the epoch - added_on)
-        age_in_seconds = datetime.now().timestamp() - added_on
-
-        # Convert seconds to a more readable format (days, hours, minutes)
-        age_days = age_in_seconds // 86400  # Number of seconds in a day
-        age_hours = (age_in_seconds % 86400) // 3600  # Remaining hours
-        age_minutes = (age_in_seconds % 3600) // 60  # Remaining minutes
-
-        return f"{age_days} days, {age_hours} hours, {age_minutes} minutes"
 
     def to_str(self, include_extended=False):
         # List of attributes to exclude from dynamic formatting

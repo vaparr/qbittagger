@@ -2,9 +2,7 @@ import qbittorrentapi
 import sys
 import os
 import shutil
-import time
 
-from datetime import datetime, timedelta
 from colorama import Fore, Back, Style, init
 from tqdm import tqdm
 from collections import defaultdict
@@ -14,7 +12,7 @@ from . import util
 
 class TorrentManager:
 
-    def __init__(self, dry_run, no_color, tracker_json_path):
+    def __init__(self, dry_run, no_color):
 
         # args
         self.server = util.Config_Manager.get("server")
@@ -30,6 +28,7 @@ class TorrentManager:
         self.qb = self.connect_to_qb(self.server, self.port)
 
         # tracker config
+        tracker_json_path = util.Config_Manager.get("tracker_config")
         if tracker_json_path:
             self.tracker_options = util.load_trackers(tracker_json_path)
 
@@ -49,8 +48,9 @@ class TorrentManager:
 
             # get additional torrent info
             try:
-                torrent_files = self.qb.torrents_files(torrent_dict.hash)
+
                 torrent_trackers = self.qb.torrents_trackers(torrent_dict.hash)
+                torrent_files = self.qb.torrents_files(torrent_dict.hash)
 
                 # create new TorrentInfo object and add it to dict
                 self.torrent_info_list[torrent_dict.hash] = TorrentInfo(torrent_dict, torrent_files, torrent_trackers, self.tracker_options)
@@ -175,7 +175,7 @@ class TorrentManager:
             torrent_info.torrent_remove_category()
 
         # hardlink
-        if util.Config_Manager.get('tag_hardlink'):
+        if util.Config_Manager.get('options')['tag_hardlink']:
             hl_tag_add = TagNames.HARDLINK.value if torrent_info.is_hardlinked else TagNames.NO_HARDLINK.value
             hl_tag_remove = TagNames.NO_HARDLINK.value if torrent_info.is_hardlinked else TagNames.HARDLINK.value
             torrent_info.torrent_add_tag(hl_tag_add)
@@ -249,16 +249,12 @@ class TorrentManager:
             # Set tracker delete days, default to 0 if None
             tracker_delete_days = torrent_info.tracker_opts.get("delete", 0)
             if torrent_info.has_autobrr_tag:
-                tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or util.Config_Manager.get('default_autobrr_delete_days')
+                tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or util.Config_Manager.get('autobrr')['default_delete_days']
 
-            # Only calculate if we have a valid completion timestamp and non-zero delete days
-            if tracker_delete_days > 0 and torrent_info.torrent_dict["completion_on"] > 1000000000:
-                torrent_completed = datetime.fromtimestamp(torrent_info.torrent_dict["completion_on"])
-                torrent_threshold = torrent_completed + timedelta(days=tracker_delete_days)
-
-                if datetime.now() > torrent_threshold:
-                    self.handle_delete_state(torrent_info)
-                    self.handle_keep_last(torrent_info)
+            # Handle delete states for torrents past delete threshold. Incomplete torrents should have negative value for torrent_completed_since_days
+            if tracker_delete_days > 0 and torrent_info.torrent_completed_since_days > tracker_delete_days:
+                self.handle_delete_state(torrent_info)
+                self.handle_keep_last(torrent_info)
 
     def handle_delete_state(self, torrent_info: TorrentInfo):
 
@@ -392,23 +388,22 @@ class TorrentManager:
     def move_orphaned(self):
         print("\n=== Find and move orphaned files ===")
 
-        if not util.Config_Manager.get('move_orphaned'):
-            print(f"\nSkipping because move_orphaned is false.")
-            return
         try:
-            # Get orphaned destination path and format it
-            orphan_dest = util.Config_Manager.get('orphaned_destination')
+            config_orphaned = util.Config_Manager.get('orphaned_files')
+            if not config_orphaned['move_orphaned']:
+                print(f"\nSkipping because move_orphaned is false.")
+                return
+
+            orphan_dest = config_orphaned['orphan_destination']
             orphan_dest = util.format_path(orphan_dest)
-        except KeyError as e:
-            print(f"Error: Missing config for orphaned destination: {e}")
-            return
+            excluded_save_paths = config_orphaned['excluded_save_paths']
+            move_orphaned_after_days = config_orphaned['move_orphaned_after_days']
+
         except Exception as e:
-            print(f"Error: Failed to format orphaned destination: {e}")
+            print(f"Error: Failed to retrieve orphaned_files config: {e}")
             return
 
         ignore_files = {".ds_store", "thumbs.db"}  # Set of files to ignore
-        excluded_save_paths = util.Config_Manager.get('excluded_save_paths', None)
-
         for save_path in TorrentInfo.Unique_SavePaths:
 
             if excluded_save_paths and save_path in excluded_save_paths:
@@ -416,7 +411,6 @@ class TorrentManager:
 
             print(f"\nScanning {save_path}")
             moved = 0
-
             try:
                 for root, _, filenames in os.walk(save_path):
                     # Filter out ignored files
@@ -431,25 +425,25 @@ class TorrentManager:
                             dest_path = full_path.replace(save_path, orphan_dest)
                             dest_path_parent = dest_path.rsplit(os.sep, 1)[0]
 
-                            # Dry-run behavior vs actual move
-                            moved += 1
-                            if self.dry_run:
-                                print(f"-- [DRY RUN] Will move {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
-                            else:
-                                print(f"-- MOVING {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
-                                try:
-                                    # Create destination path if it doesn't exist
-                                    os.makedirs(dest_path_parent, exist_ok=True)
+                            if util.file_modified_older_than(full_path, move_orphaned_after_days):
+                                moved += 1
+                                if self.dry_run:
+                                    print(f"-- [DRY RUN] Will move {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
+                                else:
+                                    print(f"-- MOVING {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
+                                    try:
+                                        # Create destination path if it doesn't exist
+                                        os.makedirs(dest_path_parent, exist_ok=True)
 
-                                    # remove if exists at destination
-                                    if os.path.exists(dest_path):
-                                        os.remove(dest_path)
+                                        # remove if exists at destination
+                                        if os.path.exists(dest_path):
+                                            os.remove(dest_path)
 
-                                    # move file
-                                    shutil.move(full_path, dest_path_parent)
+                                        # move file
+                                        shutil.move(full_path, dest_path_parent)
 
-                                except (OSError, shutil.Error) as move_error:
-                                    print(f"   Error moving {full_path}: {move_error}")
+                                    except (OSError, shutil.Error) as move_error:
+                                        print(f"   Error moving {full_path}: {move_error}")
 
                 # Remove empty directories after processing
                 self.remove_empty_dirs(save_path)
@@ -464,54 +458,37 @@ class TorrentManager:
 
         print(f"\n=== Remove orphaned files ===\n")
         try:
-            # Get config value for file age threshold and validate
-            remove_orphaned_age_days = util.Config_Manager.get('remove_orphaned_age_days')
-            if remove_orphaned_age_days < 0:
-                print(f"Skipping because remove_orphaned_age_days is set to {remove_orphaned_age_days}.\n")
-                return
-        except KeyError as e:
-            print(f"Error: Missing config for 'remove_orphaned_age_days': {e}")
-            return
-        except Exception as e:
-            print(f"Error: Failed to retrieve or validate 'remove_orphaned_age_days': {e}")
-            return
+            config_orphaned = util.Config_Manager.get('orphaned_files')
 
-        try:
-            # Calculate time threshold for orphan removal
-            current_time = time.time()
-            days_in_seconds = remove_orphaned_age_days * 24 * 60 * 60
-            directory = util.Config_Manager.get('orphaned_destination')
+            # Get config values
+            directory = config_orphaned['orphan_destination']
             directory = util.format_path(directory)
-            print(f"Removing files older than {remove_orphaned_age_days} days in {directory}")
-        except KeyError as e:
-            print(f"Error: Missing config for 'orphaned_destination': {e}")
-            return
+            remove_age_days = config_orphaned['remove_orphaned_age_days']
+            if remove_age_days < 0:
+                print(f"Skipping because remove_orphaned_age_days is set to {remove_age_days}.\n")
+                return
+
         except Exception as e:
-            print(f"Error: Failed to format 'orphaned_destination': {e}")
+            print(f"Error: Failed to retrieve or validate 'orphaned_files': {e}\n")
             return
 
         try:
+            print(f"Removing files older than {remove_age_days} days in {directory}")
+
             # Traverse through the directory and process files
             removed = 0
             for root, _, files in os.walk(directory):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    root2 = util.format_path(root)
+                    root_print = util.format_path(root)
 
                     try:
-                        # Get the last modified time of the file
-                        file_mtime = os.path.getmtime(file_path)
-
-                        # Calculate file age
-                        file_age = current_time - file_mtime
-
-                        # If file is older than the threshold
-                        if file_age > days_in_seconds:
+                        if util.file_modified_older_than(file_path, remove_age_days):
                             removed += 1
                             if self.dry_run:
-                                print(f"-- [DRY RUN] Will remove {file_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'}")
+                                print(f"-- [DRY RUN] Will remove {file_path if self.no_color else f'{Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET}'}")
                             else:
-                                print(f"-- Removing {file_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'}")
+                                print(f"-- Removing {file_path if self.no_color else f'{Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET}'}")
                                 os.remove(file_path)
 
                     except OSError as e:
@@ -522,7 +499,6 @@ class TorrentManager:
             # Remove empty directories after processing
             self.remove_empty_dirs(directory)
             print(f"-- {'[DRY RUN] Will remove' if self.dry_run else 'Removed'} {removed} files.")
-            print()
 
         except Exception as e:
             print(f"-- Error traversing directory {directory}: {e}")
@@ -553,3 +529,54 @@ class TorrentManager:
         # Recursively call the function if directories were removed during this pass
         if dirs_removed:
             self.remove_empty_dirs(directory)
+
+
+    def auto_delete_torrents(self):
+
+        print("\n=== Auto-delete torrents ===\n")
+
+        auto_delete_config = util.Config_Manager.get('auto_delete_torrents')
+        if not auto_delete_config['enabled']:
+            print("Auto-delete is not enabled. Skipping.")
+            return
+
+        auto_delete_tags = auto_delete_config['auto_delete_tags']
+        if not auto_delete_tags:
+            print("auto-delete-tags is not defined. Skipping.")
+            return
+
+        total_size = 0
+        backup_dest = auto_delete_config['backup_destination']
+        if not backup_dest:
+            print(f"backup_destination is not specified for auto-delete. Skipping.")
+            return
+
+        if not os.path.exists(backup_dest):
+            os.makedirs(backup_dest)
+
+        for torrent_info in self.torrent_info_list.values():
+            matching_tag = next((tag for tag in auto_delete_tags if tag in torrent_info.current_tags), None)
+            if matching_tag and torrent_info.torrent_completed_since_days >= auto_delete_config['auto_delete_age_days']:
+                torrent_hash = torrent_info._hash
+                torrent_name = torrent_info._name
+                torrent_size = torrent_info.torrent_dict['size']
+                total_size += torrent_size
+                formatted_size = util.format_bytes(torrent_size)
+                if self.dry_run:
+                    print(f"-- [DRY RUN] Will remove [{matching_tag if self.no_color else f'{Fore.GREEN}{matching_tag}{Fore.RESET}'}] '{torrent_name if self.no_color else f'{Fore.YELLOW}{torrent_name}{Fore.RESET}'}' ({torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}) torrent with size '{formatted_size if self.no_color else f'{Fore.GREEN}{formatted_size}{Fore.RESET}'}'")
+                else:
+                    # remove torrents with delete_files set to False, as orphan cleanup will take care of them.
+                    print(f"-- Removing [{matching_tag if self.no_color else f'{Fore.GREEN}{matching_tag}{Fore.RESET}'}] '{torrent_name if self.no_color else f'{Fore.YELLOW}{torrent_name}{Fore.RESET}'}' ({torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}) torrent with size '{formatted_size if self.no_color else f'{Fore.GREEN}{formatted_size}{Fore.RESET}'}'")
+                    if backup_dest:
+                        torrent_ex = self.qb.torrents_export(torrent_hash)
+                        torrent_ex_path = os.path.join(backup_dest, f"{torrent_hash}.torrent")
+                        with open(torrent_ex_path, 'wb') as f:
+                            f.write(torrent_ex)
+                        if os.path.exists(torrent_ex_path):
+                            self.qb.torrents_delete(delete_files=False, torrent_hashes=torrent_hash)
+
+        print()
+        if self.dry_run:
+            print(f"[DRY RUN] Total size of removed torrents with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")
+        else:
+            print(f"Total size of removed torrents with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")
