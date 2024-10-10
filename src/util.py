@@ -1,10 +1,13 @@
 import json
 import os
 import time
+import requests
+
 from datetime import datetime, timedelta
 
 Config_Manager = None
 Current_Time = time.time()
+Discord_Summary = []
 
 def load_trackers(tracker_json_path):
 
@@ -61,16 +64,65 @@ def file_modified_older_than(file_path, num_days):
 
         # Get the file's last modified time
         file_mod_time = os.path.getmtime(file_path)
-        
+
         # Get the current time and calculate the threshold
         file_age = Current_Time - file_mod_time
-        
+
         # Return True if the file was modified more than 'num_days' ago
         return file_age > days_in_seconds
-    
+
     except FileNotFoundError:
         print(f"File not found: {file_path}")
         return False
     except Exception as e:
         print(f"Error checking file modification time: {e}")
         return False
+
+# Function to send Discord notification by using the global summary list
+def send_discord_notification(webhook_url, title, description, summary):
+
+    timestamp = datetime.now().strftime("%m/%d/%Y %I:%M %p")  # e.g., "10/06/2024 07:07 AM"
+    footer_icon_url = "https://raw.githubusercontent.com/walkxcode/dashboard-icons/refs/heads/main/png/qbittorrent.png"
+    color=0x2ecc71
+
+    if not summary:
+        raise ValueError(summary)
+
+    # Create an embed structure
+    embed = {
+        "title": title,
+        "description": description,
+        "color": color,
+        "fields": [],  # Empty list to be filled dynamically from summary
+        "footer": {
+            "text": timestamp,
+            "icon_url": footer_icon_url
+        }
+    }
+
+    # Loop through the summary list (which now contains tuples) and add them as fields in the embed
+    for name, value in summary:
+        embed["fields"].append({
+            "name": f"__{name}__",
+            "value": value,
+            "inline": False  # Default inline to False
+        })
+
+    # Payload for the webhook
+    payload = {
+        "embeds": [embed]
+    }
+
+    # Send the POST request to Discord webhook
+    try:
+        response = requests.post(webhook_url, json=payload)
+        # Check the response from the request
+        if response.status_code == 204:
+            print("Discord Notification sent!")
+        else:
+            print(f"Failed to send discord notification: {response.status_code}, {response.text}")
+
+    except Exception as e:
+            print(f"Failed to send discord notification: {e}")
+
+    print()

@@ -402,6 +402,7 @@ class TorrentManager:
             return
 
         ignore_files = {".ds_store", "thumbs.db"}  # Set of files to ignore
+        summary = ""
         for save_path in TorrentInfo.Unique_SavePaths:
 
             if excluded_save_paths and save_path in excluded_save_paths:
@@ -409,6 +410,7 @@ class TorrentManager:
 
             print(f"\nScanning {save_path}")
             moved = 0
+            total_size = 0
             try:
                 for root, _, filenames in os.walk(save_path):
                     # Filter out ignored files
@@ -425,10 +427,12 @@ class TorrentManager:
 
                             if util.file_modified_older_than(full_path, move_orphaned_after_days):
                                 moved += 1
+                                file_size = os.path.getsize(full_path)
+                                total_size += file_size
                                 if self.dry_run:
-                                    print(f"-- [DRY RUN] Will move {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
+                                    print(f"-- [DRY RUN] Will move {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} [{util.format_bytes(file_size)}] TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
                                 else:
-                                    print(f"-- MOVING {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
+                                    print(f"-- MOVING {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} [{util.format_bytes(file_size)}] TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
                                     try:
                                         # Create destination path if it doesn't exist
                                         os.makedirs(dest_path_parent, exist_ok=True)
@@ -445,11 +449,13 @@ class TorrentManager:
 
                 # Remove empty directories after processing
                 self.remove_empty_dirs(save_path)
-                print(f"-- {'[DRY RUN] Will move' if self.dry_run else 'Moved'} {moved} files.")
-
+                summary += f"\n\nSave Path: *{save_path}* \nMoved {moved} files **[{util.format_bytes(total_size)}]**."
+                print(f"-- {'[DRY RUN] Will move' if self.dry_run else 'Moved'} {moved} files with total size [{util.format_bytes(total_size)}].")
 
             except Exception as e:
                 print(f"-- Error scanning {save_path}: {e}")
+
+        util.Discord_Summary.append(("Move orphaned files", summary))
 
 
     def remove_orphaned(self):
@@ -475,6 +481,7 @@ class TorrentManager:
 
             # Traverse through the directory and process files
             removed = 0
+            total_size = 0
             for root, _, files in os.walk(directory):
                 for file in files:
                     file_path = os.path.join(root, file)
@@ -483,10 +490,12 @@ class TorrentManager:
                     try:
                         if util.file_modified_older_than(file_path, remove_age_days):
                             removed += 1
+                            file_size = os.path.getsize(file_path)
+                            total_size += file_size
                             if self.dry_run:
-                                print(f"-- [DRY RUN] Will remove {file_path if self.no_color else f'{Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET}'}")
+                                print(f"-- [DRY RUN] Will remove {file_path if self.no_color else f'{Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET}'} [{util.format_bytes(file_size)}]")
                             else:
-                                print(f"-- Removing {file_path if self.no_color else f'{Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET}'}")
+                                print(f"-- Removing {file_path if self.no_color else f'{Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET}'} [{util.format_bytes(file_size)}]")
                                 os.remove(file_path)
 
                     except OSError as e:
@@ -496,8 +505,8 @@ class TorrentManager:
 
             # Remove empty directories after processing
             self.remove_empty_dirs(directory)
-            print(f"-- {'[DRY RUN] Will remove' if self.dry_run else 'Removed'} {removed} files.")
-
+            util.Discord_Summary.append(("Remove orphaned files", f"Orphan Destination: *{directory}* \nRemoved {removed} files **[{util.format_bytes(total_size)}]**."))
+            print(f"-- {'[DRY RUN] Will remove' if self.dry_run else 'Removed'} {removed} files with total size [{util.format_bytes(total_size)}].")
         except Exception as e:
             print(f"-- Error traversing directory {directory}: {e}")
 
@@ -576,6 +585,7 @@ class TorrentManager:
                             self.qb.torrents_delete(delete_files=False, torrent_hashes=torrent_hash)
 
         print()
+        util.Discord_Summary.append(("Auto-delete torrents", f"auto_delete_tags: *{auto_delete_tags}* \nRemoved {removed} torrents **[{util.format_bytes(total_size)}]**."))
         if self.dry_run:
             print(f"[DRY RUN] Total size of removed torrents [{removed}] with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")
         else:

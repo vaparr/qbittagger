@@ -43,7 +43,9 @@ if __name__ == "__main__":
         }),
         ('auto_delete_torrents', {
             'enabled': False,
-            'auto_delete_tags': [],
+            'auto_delete_tags': [
+                "#_unregistered"
+            ],
             'auto_delete_age_days': 3,
             'backup_destination': None
         }),
@@ -51,6 +53,11 @@ if __name__ == "__main__":
             'enabled': True,
             'autobrr_tag_name': 'autobrr',
             'default_delete_days': 14
+        }),
+        ('notification', {
+            'enabled': False,
+            'discord_webhook_url': '<your-webhook-url>',
+            'send_for_dry_run': False
         })
     ])
 
@@ -80,6 +87,14 @@ if __name__ == "__main__":
         manager.auto_delete_torrents()
 
     print()
+
+    notification_config = util.Config_Manager.get('notification')
+    if notification_config['enabled'] and (not args.dry_run or notification_config['send_for_dry_run']):
+        title = "QB-Tagger Summary"
+        description = f"{'**DRY RUN**: ' if args.dry_run else ''}Running with operations {args.operation}"
+        webhook_url = notification_config['discord_webhook_url']
+        util.send_discord_notification(webhook_url, title, description, util.Discord_Summary)
+
 
     if args.output_hash:
         hash_list = [h.strip() for h in args.output_hash.split(",")]  # Split and strip whitespaces
