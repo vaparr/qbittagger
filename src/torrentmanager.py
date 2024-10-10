@@ -164,7 +164,7 @@ class TorrentManager:
 
         # update delete tags
         if not torrent_info.torrent_trackers_filtered:
-            torrent_info.delete_state = DeleteState.DELETE
+            torrent_info.delete_state = DeleteState.DELETE_NOW
             torrent_info.torrent_remove_category()
         self.update_delete_tags(torrent_info)
 
@@ -241,7 +241,7 @@ class TorrentManager:
 
         # Check if it's unregistered
         if torrent_info.is_unregistered and torrent_info.cross_seed_state == CrossSeedState.NONE:
-            torrent_info.delete_state = DeleteState.DELETE
+            torrent_info.delete_state = DeleteState.READY
 
         if torrent_info.delete_state == DeleteState.NONE:
             # Set tracker delete days, default to 0 if None
@@ -250,36 +250,45 @@ class TorrentManager:
                 tracker_delete_days = torrent_info.tracker_opts.get("autobrr_delete", 0) or util.Config_Manager.get('autobrr')['default_delete_days']
 
             # Handle delete states for torrents past delete threshold. Incomplete torrents should have negative value for torrent_completed_since_days
+            self.handle_delete_state(torrent_info, tracker_delete_days)
             if tracker_delete_days > 0 and torrent_info.torrent_completed_since_days > tracker_delete_days:
-                self.handle_delete_state(torrent_info)
                 self.handle_keep_last(torrent_info)
 
-    def handle_delete_state(self, torrent_info: TorrentInfo):
+    def handle_delete_state(self, torrent_info: TorrentInfo, tracker_delete_days):
 
-        # Not cross-seeded
-        if torrent_info.cross_seed_state == CrossSeedState.NONE:
-            if torrent_info.has_autobrr_tag and torrent_info.is_private:
-                torrent_info.delete_state = DeleteState.AUTOBRR_DELETE
-            else:
-                if torrent_info.tracker_name == "BTN" and torrent_info.is_season_pack:
-                    torrent_info.delete_state = DeleteState.NEVER
+        # Not cross-seeded and BTN
+        if torrent_info.cross_seed_state == CrossSeedState.NONE and torrent_info.tracker_name == "BTN" and torrent_info.is_season_pack:
+            torrent_info.delete_state = DeleteState.NEVER
+            return
+
+        # Cross-seeded, and BTN
+        if torrent_info.cross_seed_state == CrossSeedState.PARENT:
+
+            # Determine if BTN is involved in cross-seeds
+            is_btn_involved = any(self.torrent_info_list[cross_hash].tracker_name == "BTN" for cross_hash in torrent_info.cross_seed_hashes)
+
+            if torrent_info.is_season_pack and is_btn_involved:
+                for cross_hash in torrent_info.cross_seed_hashes:
+                    self.torrent_info_list[cross_hash].delete_state = DeleteState.NEVER
+                return
+
+        if tracker_delete_days > 0 and torrent_info.torrent_completed_since_days > tracker_delete_days:
+
+            # Not cross-seeded
+            if torrent_info.cross_seed_state == CrossSeedState.NONE:
+                if torrent_info.has_autobrr_tag and torrent_info.is_private:
+                    torrent_info.delete_state = DeleteState.AUTOBRR_DELETE
                 elif torrent_info.has_hardlink_tag and torrent_info.is_private:
                     torrent_info.delete_state = DeleteState.HARDLINK_DELETE
                 else:
                     torrent_info.delete_state = DeleteState.DELETE_IF_NEEDED if torrent_info.is_polite_to_seed else DeleteState.READY
 
-        # Cross-seeded, decide based on parent's state
-        if torrent_info.cross_seed_state == CrossSeedState.PARENT:
-            if torrent_info.has_autobrr_tag and torrent_info.is_private:
-                for cross_hash in torrent_info.cross_seed_hashes:
-                    self.torrent_info_list[cross_hash].delete_state = DeleteState.AUTOBRR_DELETE
-            else:
-                # Determine if BTN is involved in cross-seeds
-                is_btn_involved = any(self.torrent_info_list[cross_hash].tracker_name == "BTN" for cross_hash in torrent_info.cross_seed_hashes)
+            # Cross-seeded, decide based on parent's state
+            if torrent_info.cross_seed_state == CrossSeedState.PARENT:
 
-                if torrent_info.is_season_pack and is_btn_involved:
+                if torrent_info.has_autobrr_tag and torrent_info.is_private:
                     for cross_hash in torrent_info.cross_seed_hashes:
-                        self.torrent_info_list[cross_hash].delete_state = DeleteState.NEVER
+                        self.torrent_info_list[cross_hash].delete_state = DeleteState.AUTOBRR_DELETE
                 elif torrent_info.has_hardlink_tag and torrent_info.is_private:
                     for cross_hash in torrent_info.cross_seed_hashes:
                         self.torrent_info_list[cross_hash].delete_state = DeleteState.HARDLINK_DELETE

@@ -21,7 +21,7 @@ class CrossSeedState(Enum):
 
 class DeleteState(Enum):
     NONE = "#_delete_none"
-    DELETE = "#_delete"
+    DELETE_NOW = "#_delete_now"
     READY = "#_delete_ready"
     DELETE_IF_NEEDED = "#_delete_if_needed"
     KEEP_LAST = "#_keep_last"
