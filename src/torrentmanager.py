@@ -400,11 +400,14 @@ class TorrentManager:
             if not config_orphaned['move_orphaned']:
                 print(f"\nSkipping because move_orphaned is false.")
                 return
-
-            orphan_dest = config_orphaned['orphan_destination']
-            orphan_dest = util.format_path(orphan_dest)
-            excluded_save_paths = config_orphaned['excluded_save_paths']
+            
             move_orphaned_after_days = config_orphaned['move_orphaned_after_days']
+            if move_orphaned_after_days < 0:
+                print(f"\nSkipping because move_orphaned_after_days is {move_orphaned_after_days}.")
+                return
+
+            orphan_dest = util.format_path(config_orphaned['orphan_destination'])
+            excluded_save_paths = config_orphaned['excluded_save_paths']
 
         except Exception as e:
             print(f"Error: Failed to retrieve orphaned_files config: {e}")
@@ -474,24 +477,24 @@ class TorrentManager:
             config_orphaned = util.Config_Manager.get('orphaned_files')
 
             # Get config values
-            directory = config_orphaned['orphan_destination']
-            directory = util.format_path(directory)
             remove_age_days = config_orphaned['remove_orphaned_age_days']
             if remove_age_days < 0:
                 print(f"Skipping because remove_orphaned_age_days is set to {remove_age_days}.\n")
                 return
+            
+            orphan_dest = util.format_path(config_orphaned['orphan_destination'])
 
         except Exception as e:
             print(f"Error: Failed to retrieve or validate 'orphaned_files': {e}\n")
             return
 
         try:
-            print(f"Removing files older than {remove_age_days} days in {directory}")
+            print(f"Removing files older than {remove_age_days} days in {orphan_dest}")
 
             # Traverse through the directory and process files
             removed = 0
             total_size = 0
-            for root, _, files in os.walk(directory):
+            for root, _, files in os.walk(orphan_dest):
                 for file in files:
                     file_path = os.path.join(root, file)
                     root_print = util.format_path(root)
@@ -513,11 +516,11 @@ class TorrentManager:
                         print(f"-- Error processing file {file_path}: {e}")
 
             # Remove empty directories after processing
-            self.remove_empty_dirs(directory)
-            util.Discord_Summary.append(("Remove orphaned files", f"Orphan Destination: *{directory}* \nRemoved {removed} files **[{util.format_bytes(total_size)}]**."))
+            self.remove_empty_dirs(orphan_dest)
+            util.Discord_Summary.append(("Remove orphaned files", f"Orphan Destination: *{orphan_dest}* \nRemoved {removed} files **[{util.format_bytes(total_size)}]**."))
             print(f"-- {'[DRY RUN] Will remove' if self.dry_run else 'Removed'} {removed} files with total size [{util.format_bytes(total_size)}].")
         except Exception as e:
-            print(f"-- Error traversing directory {directory}: {e}")
+            print(f"-- Error traversing directory {orphan_dest}: {e}")
 
     def remove_empty_dirs(self, directory):
         dirs_removed = False  # Flag to track if any directory was removed during the current pass
