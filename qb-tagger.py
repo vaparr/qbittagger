@@ -66,41 +66,49 @@ if __name__ == "__main__":
     config_manager.save() # save the file back to populate missing settings in config.yaml
     util.Config_Manager = config_manager
 
-    # print(args)
-    # exit(1)
+    try:
+        manager = TorrentManager(args.dry_run, args.no_color)
+        manager.get_torrents()
+        manager.analyze_torrents()
 
-    manager = TorrentManager(args.dry_run, args.no_color)
-    manager.get_torrents()
-    manager.analyze_torrents()
+        # default, always update tags
+        if not args.operation or "update-tags" in args.operation:
+            manager.update_torrents()
 
-    # default, always update tags
-    if not args.operation or "update-tags" in args.operation:
-        manager.update_torrents()
+        # only run orphaned related tasks when explicitly specified
+        if args.operation and "move-orphaned" in args.operation:
+            manager.move_orphaned()
+            manager.remove_orphaned()
 
-    # only run orphaned related tasks when explicitly specified
-    if args.operation and "move-orphaned" in args.operation:
-        manager.move_orphaned()
-        manager.remove_orphaned()
+        # only run auto-delete when explicitly specified
+        if args.operation and "auto-delete" in args.operation:
+            manager.auto_delete_torrents()
 
-    # only run auto-delete when explicitly specified
-    if args.operation and "auto-delete" in args.operation:
-        manager.auto_delete_torrents()
+        print()
 
-    print()
+        notification_config = util.Config_Manager.get('notification')
+        if notification_config['enabled'] and (not args.dry_run or notification_config['send_for_dry_run']):
+            if args.operation and ("move-orphaned" in args.operation or "auto-delete" in args.operation):
+                title = "QB-Tagger Summary"
+                description = f"{'**DRY RUN**: ' if args.dry_run else ''}Running with operations {args.operation}"
+                webhook_url = notification_config['discord_webhook_url']
+                util.send_discord_notification(webhook_url, title, description, util.Discord_Summary)
 
-    notification_config = util.Config_Manager.get('notification')
-    if notification_config['enabled'] and (not args.dry_run or notification_config['send_for_dry_run']):
-        title = "QB-Tagger Summary"
-        description = f"{'**DRY RUN**: ' if args.dry_run else ''}Running with operations {args.operation}"
-        webhook_url = notification_config['discord_webhook_url']
-        util.send_discord_notification(webhook_url, title, description, util.Discord_Summary)
+        if args.output_hash:
+            hash_list = [h.strip() for h in args.output_hash.split(",")]  # Split and strip whitespaces
+            for torrent_hash in hash_list:
+                torrent_info = manager.torrent_info_list.get(torrent_hash)
+                if torrent_info:  # Checks if the list is not empty
+                    print(torrent_info.to_str(args.output_extended))
+                else:
+                    print(f"\nWARNING: Torrent with hash {torrent_hash} not found.\n")
 
-
-    if args.output_hash:
-        hash_list = [h.strip() for h in args.output_hash.split(",")]  # Split and strip whitespaces
-        for torrent_hash in hash_list:
-            torrent_info = manager.torrent_info_list.get(torrent_hash)
-            if torrent_info:  # Checks if the list is not empty
-                print(torrent_info.to_str(args.output_extended))
-            else:
-                print(f"\nWARNING: Torrent with hash {torrent_hash} not found.\n")
+    except Exception as e:
+        notification_config = util.Config_Manager.get('notification')
+        if notification_config['enabled'] and (not args.dry_run or notification_config['send_for_dry_run']):
+            title = "QB-Tagger Summary"
+            description = f"{'**DRY RUN**: ' if args.dry_run else ''}Running with operations {args.operation}"
+            webhook_url = notification_config['discord_webhook_url']
+            msg = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
+            util.Discord_Summary.append(("Script failure", msg))
+            util.send_discord_notification(webhook_url, title, description, util.Discord_Summary)
