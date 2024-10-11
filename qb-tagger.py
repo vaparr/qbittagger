@@ -67,6 +67,17 @@ if __name__ == "__main__":
     util.Config_Manager = config_manager
 
     try:
+
+        # notification
+        notify = False
+        notification_config = util.Config_Manager.get('notification')
+        if notification_config['enabled'] and (not args.dry_run or notification_config['send_for_dry_run']):
+            notify_title = "QB-Tagger Summary"
+            notify_description = f"{'**DRY RUN**: ' if args.dry_run else ''}Running operations {args.operation}"
+            notify_webhook_url = notification_config['discord_webhook_url']
+            notify = True
+
+        # manager
         manager = TorrentManager(args.dry_run, args.no_color)
         manager.get_torrents()
         manager.analyze_torrents()
@@ -86,29 +97,22 @@ if __name__ == "__main__":
 
         print()
 
-        notification_config = util.Config_Manager.get('notification')
-        if notification_config['enabled'] and (not args.dry_run or notification_config['send_for_dry_run']):
-            if args.operation and ("move-orphaned" in args.operation or "auto-delete" in args.operation):
-                title = "QB-Tagger Summary"
-                description = f"{'**DRY RUN**: ' if args.dry_run else ''}Running with operations {args.operation}"
-                webhook_url = notification_config['discord_webhook_url']
-                util.send_discord_notification(webhook_url, title, description, util.Discord_Summary)
+        if notify and args.operation and any(op in args.operation for op in ("move-orphaned", "auto-delete")):
+            util.send_discord_notification(notify_webhook_url, notify_title, notify_description, util.Discord_Summary)
 
         if args.output_hash:
             hash_list = [h.strip() for h in args.output_hash.split(",")]  # Split and strip whitespaces
             for torrent_hash in hash_list:
                 torrent_info = manager.torrent_info_list.get(torrent_hash)
-                if torrent_info:  # Checks if the list is not empty
+                if torrent_info:
                     print(torrent_info.to_str(args.output_extended))
                 else:
                     print(f"\nWARNING: Torrent with hash {torrent_hash} not found.\n")
 
     except Exception as e:
-        notification_config = util.Config_Manager.get('notification')
-        if notification_config['enabled'] and (not args.dry_run or notification_config['send_for_dry_run']):
-            title = "QB-Tagger Summary"
-            description = f"{'**DRY RUN**: ' if args.dry_run else ''}Running with operations {args.operation}"
-            webhook_url = notification_config['discord_webhook_url']
-            msg = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
+        msg = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
+        print("\n!!! Script failure !!!\n")
+        print(f"{msg}\n")
+        if notify:
             util.Discord_Summary.append(("Script failure", msg))
-            util.send_discord_notification(webhook_url, title, description, util.Discord_Summary)
+            util.send_discord_notification(notify_webhook_url, notify_title, notify_description, util.Discord_Summary)
