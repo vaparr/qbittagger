@@ -121,6 +121,7 @@ def send_discord_notification(webhook_url, title, description, summary):
             print("Discord Notification sent!")
         else:
             print(f"Failed to send discord notification: {response.status_code}, {response.text}")
+            print(f"Notification payload: {payload}")
 
     except Exception as e:
             print(f"Failed to send discord notification: {e}")

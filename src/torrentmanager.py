@@ -471,14 +471,17 @@ class TorrentManager:
 
                 # Remove empty directories after processing
                 self.remove_empty_dirs(save_path)
-                summary += f"\n\nSave Path: *{save_path}* \nMoved {moved} files **[{util.format_bytes(total_size)}]**."
                 print(f"-- {'[DRY RUN] Will move' if self.dry_run else 'Moved'} {moved} files with total size [{util.format_bytes(total_size)}].")
+                if moved > 0:
+                    summary += f"\n\nSave Path: *{save_path}* \nMoved {moved} files **[{util.format_bytes(total_size)}]**."
 
             except Exception as e:
                 print(f"-- Error scanning {save_path}: {e}")
 
-        util.Discord_Summary.append(("Move orphaned files", summary))
-
+        if total_size > 0:
+            util.Discord_Summary.append(("Move orphaned files", summary))
+        else:
+            util.Discord_Summary.append(("Move orphaned files", "No changes."))
 
     def remove_orphaned(self):
 
