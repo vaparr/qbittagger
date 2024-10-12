@@ -425,6 +425,7 @@ class TorrentManager:
 
         ignore_files = {".ds_store", "thumbs.db"}  # Set of files to ignore
         summary = ""
+        total_total_size = 0
         for save_path in unique_save_paths:
 
             if excluded_save_paths and save_path in excluded_save_paths:
@@ -470,6 +471,7 @@ class TorrentManager:
                                         print(f"   Error moving {full_path}: {move_error}")
 
                 # Remove empty directories after processing
+                total_total_size += total_size
                 self.remove_empty_dirs(save_path)
                 print(f"-- {'[DRY RUN] Will move' if self.dry_run else 'Moved'} {moved} files with total size [{util.format_bytes(total_size)}].")
                 if moved > 0:
@@ -478,7 +480,7 @@ class TorrentManager:
             except Exception as e:
                 print(f"-- Error scanning {save_path}: {e}")
 
-        if total_size > 0:
+        if total_total_size > 0:
             util.Discord_Summary.append(("Move orphaned files", summary))
         else:
             util.Discord_Summary.append(("Move orphaned files", "No changes."))
