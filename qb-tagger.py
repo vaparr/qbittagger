@@ -86,14 +86,14 @@ if __name__ == "__main__":
         if not args.operation or "update-tags" in args.operation:
             manager.update_torrents()
 
+        # only run auto-delete when explicitly specified
+        if args.operation and "auto-delete" in args.operation:
+            manager.auto_delete_torrents()
+
         # only run orphaned related tasks when explicitly specified
         if args.operation and "move-orphaned" in args.operation:
             manager.move_orphaned()
             manager.remove_orphaned()
-
-        # only run auto-delete when explicitly specified
-        if args.operation and "auto-delete" in args.operation:
-            manager.auto_delete_torrents()
 
         print()
 

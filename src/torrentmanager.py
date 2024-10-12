@@ -400,7 +400,7 @@ class TorrentManager:
             if not config_orphaned['move_orphaned']:
                 print(f"\nSkipping because move_orphaned is false.")
                 return
-            
+
             move_orphaned_after_days = config_orphaned['move_orphaned_after_days']
             if move_orphaned_after_days < 0:
                 print(f"\nSkipping because move_orphaned_after_days is {move_orphaned_after_days}.")
@@ -413,9 +413,19 @@ class TorrentManager:
             print(f"Error: Failed to retrieve orphaned_files config: {e}")
             return
 
+        # Generate list of unique files
+        unique_files = set()
+        unique_save_paths = set()
+        for torrent_info in self.torrent_info_list.values():
+            unique_save_paths.add(torrent_info.save_path_host)
+            if torrent_info.torrent_files:
+                for file in torrent_info.torrent_files:
+                    filename = os.path.join(torrent_info.save_path_host, file['name'])
+                    unique_files.add(filename)
+
         ignore_files = {".ds_store", "thumbs.db"}  # Set of files to ignore
         summary = ""
-        for save_path in TorrentInfo.Unique_SavePaths:
+        for save_path in unique_save_paths:
 
             if excluded_save_paths and save_path in excluded_save_paths:
                 continue
@@ -433,7 +443,7 @@ class TorrentManager:
                         root2 = util.format_path(root)
 
                         # Check if the file is orphaned
-                        if full_path not in TorrentInfo.Unique_Files:
+                        if full_path not in unique_files:
                             dest_path = full_path.replace(save_path, orphan_dest)
                             dest_path_parent = dest_path.rsplit(os.sep, 1)[0]
 
@@ -481,7 +491,7 @@ class TorrentManager:
             if remove_age_days < 0:
                 print(f"Skipping because remove_orphaned_age_days is set to {remove_age_days}.\n")
                 return
-            
+
             orphan_dest = util.format_path(config_orphaned['orphan_destination'])
 
         except Exception as e:
@@ -528,6 +538,11 @@ class TorrentManager:
         try:
             # Walk through directory tree from bottom-up to ensure empty directories are removed
             for dirpath, dirnames, filenames in os.walk(directory, topdown=False):
+
+                # If the directory is the top-level directory, skip it
+                if os.path.abspath(dirpath) == os.path.abspath(directory):
+                    continue  # Skip removing the top-level directory
+
                 # If the directory is empty (contains no subdirectories or files)
                 if not dirnames and not filenames:
                     try:
@@ -566,6 +581,7 @@ class TorrentManager:
 
         total_size = 0
         removed = 0
+        removed_hashes = set()
         backup_dest = auto_delete_config['backup_destination']
         if not backup_dest:
             print(f"backup_destination is not specified for auto-delete. Skipping.")
@@ -595,6 +611,10 @@ class TorrentManager:
                             f.write(torrent_ex)
                         if os.path.exists(torrent_ex_path):
                             self.qb.torrents_delete(delete_files=False, torrent_hashes=torrent_hash)
+                            removed_hashes.add(torrent_hash)
+
+        for hash in removed_hashes:
+            del self.torrent_info_list[hash]
 
         print()
         util.Discord_Summary.append(("Auto-delete torrents", f"auto_delete_tags: *{auto_delete_tags}* \nRemoved {removed} torrents **[{util.format_bytes(total_size)}]**."))

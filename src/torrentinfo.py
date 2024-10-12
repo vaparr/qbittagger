@@ -43,8 +43,6 @@ class TorrentInfo:
 
     # static variables
     ContentPath_Dict = defaultdict(list)
-    Unique_Files = set()
-    Unique_SavePaths = set()
     Stat_Cache = {}
     Stat_Cache_Hits = 0
 
@@ -166,13 +164,6 @@ class TorrentInfo:
                 host_path = util.format_path(mapping['host_path'])
                 save_path = save_path.replace(container_path, host_path)
         self.save_path_host = util.format_path(save_path)
-        TorrentInfo.Unique_SavePaths.add(self.save_path_host)
-
-        # Add unique files, always do this regardless of hardlink detection
-        if self.torrent_files:
-            for file in self.torrent_files:
-                filename = os.path.join(self.save_path_host, file['name'])
-                TorrentInfo.Unique_Files.add(filename)
 
         # Detect hardlinks, if enabled
         self.is_hardlinked = False
