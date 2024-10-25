@@ -38,6 +38,7 @@ class TagNames(Enum):
     HARDLINK = "#_hardlink"
     NO_HARDLINK = "#_no_hardlink"
     CROSS_SEED_ALL = "#_cs_all"
+    PTP_ARCHIVE = "PTP-Archive"
 
 class TorrentInfo:
 

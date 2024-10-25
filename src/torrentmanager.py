@@ -149,6 +149,11 @@ class TorrentManager:
         throttled_tag = TagNames.THROTTLED.value
         torrent_info.torrent_add_tag(throttled_tag) if torrent_info.torrent_dict["up_limit"] > 0 else torrent_info.torrent_remove_tag(throttled_tag)
 
+        ptp_archive_save_path = util.Config_Manager.get('options')['ptp_archive_save_path']
+        if ptp_archive_save_path and torrent_info.save_path_host == util.format_path(ptp_archive_save_path) and torrent_info.tracker_name == "PTP":
+            torrent_info.torrent_add_tag(TagNames.PTP_ARCHIVE.value)
+            torrent_info.torrent_remove_tag(torrent_info.tracker_name)
+
         # Cross-seeded, orphaned peers
         if torrent_info.cross_seed_state == CrossSeedState.PEER:
             hasParent = False

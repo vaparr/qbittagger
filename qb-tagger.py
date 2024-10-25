@@ -32,7 +32,8 @@ if __name__ == "__main__":
         ('path_mappings', []),
         ('options', {
             'tag_hardlink': False   ,
-            'remove_category_for_bad_torrents': False
+            'remove_category_for_bad_torrents': False,
+            'ptp_archive_save_path': None
         }),
         ('orphaned_files', {
             'move_orphaned': False,
