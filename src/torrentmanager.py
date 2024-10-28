@@ -282,7 +282,7 @@ class TorrentManager:
             # Not cross-seeded
             if torrent_info.cross_seed_state == CrossSeedState.NONE:
                 if torrent_info.has_autobrr_tag and torrent_info.is_private:
-                    torrent_info.delete_state = DeleteState.AUTOBRR_DELETE
+                    torrent_info.delete_state = DeleteState.DELETE_IF_NEEDED if torrent_info.is_polite_to_seed else DeleteState.AUTOBRR_DELETE
                 elif torrent_info.has_hardlink_tag and torrent_info.is_private:
                     torrent_info.delete_state = DeleteState.HARDLINK_DELETE
                 else:
@@ -293,13 +293,13 @@ class TorrentManager:
 
                 if torrent_info.has_autobrr_tag and torrent_info.is_private:
                     for cross_hash in torrent_info.cross_seed_hashes:
-                        self.torrent_info_list[cross_hash].delete_state = DeleteState.AUTOBRR_DELETE
+                        self.torrent_info_list[cross_hash].delete_state = DeleteState.DELETE_IF_NEEDED if self.torrent_info_list[cross_hash].is_polite_to_seed else DeleteState.AUTOBRR_DELETE
                 elif torrent_info.has_hardlink_tag and torrent_info.is_private:
                     for cross_hash in torrent_info.cross_seed_hashes:
                         self.torrent_info_list[cross_hash].delete_state = DeleteState.HARDLINK_DELETE
                 else:
                     for cross_hash in torrent_info.cross_seed_hashes:
-                        self.torrent_info_list[cross_hash].delete_state = DeleteState.READY
+                        self.torrent_info_list[cross_hash].delete_state = DeleteState.DELETE_IF_NEEDED if self.torrent_info_list[cross_hash].is_polite_to_seed else DeleteState.READY
 
     def handle_keep_last(self, torrent_info: TorrentInfo):
         # Preserve keep_last number of torrents for tracker, if set. Useful for bonus points.
