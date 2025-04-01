@@ -285,6 +285,8 @@ class TorrentManager:
                     torrent_info.delete_state = DeleteState.DELETE_IF_NEEDED if torrent_info.is_polite_to_seed else DeleteState.AUTOBRR_DELETE
                 elif torrent_info.has_hardlink_tag and torrent_info.is_private:
                     torrent_info.delete_state = DeleteState.HARDLINK_DELETE
+                elif not torrent_info.has_hardlink_tag and torrent_info.is_private:
+                    torrent_info.delete_state = DeleteState.NO_HARDLINK_DELETE
                 else:
                     torrent_info.delete_state = DeleteState.DELETE_IF_NEEDED if torrent_info.is_polite_to_seed else DeleteState.READY
 
@@ -297,6 +299,9 @@ class TorrentManager:
                 elif torrent_info.has_hardlink_tag and torrent_info.is_private:
                     for cross_hash in torrent_info.cross_seed_hashes:
                         self.torrent_info_list[cross_hash].delete_state = DeleteState.HARDLINK_DELETE
+                elif not torrent_info.has_hardlink_tag and torrent_info.is_private:
+                    for cross_hash in torrent_info.cross_seed_hashes:
+                        self.torrent_info_list[cross_hash].delete_state = DeleteState.NO_HARDLINK_DELETE
                 else:
                     for cross_hash in torrent_info.cross_seed_hashes:
                         self.torrent_info_list[cross_hash].delete_state = DeleteState.DELETE_IF_NEEDED if self.torrent_info_list[cross_hash].is_polite_to_seed else DeleteState.READY

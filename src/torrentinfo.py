@@ -27,6 +27,7 @@ class DeleteState(Enum):
     KEEP_LAST = "#_keep_last"
     AUTOBRR_DELETE = "#_delete_autobrr"
     HARDLINK_DELETE = "#_delete_hardlink"
+    NO_HARDLINK_DELETE = "#_delete_no_hardlink"
     NEVER = "#_delete_never"
 
 class TagNames(Enum):
