@@ -28,6 +28,7 @@ class DeleteState(Enum):
     AUTOBRR_DELETE = "#_delete_autobrr"
     HARDLINK_DELETE = "#_delete_hardlink"
     NO_HARDLINK_DELETE = "#_delete_no_hardlink"
+    MALWARE_DELETE = "#_delete_malware"
     NEVER = "#_delete_never"
 
 class TagNames(Enum):
@@ -135,11 +136,11 @@ class TorrentInfo:
 
         # Is rarred?
         self.is_rarred = False
-        if self.torrent_files:
-            for file in self.torrent_files:
-                if file.name.endswith(".rar"):
-                    self.is_rarred = True
-                    break
+        if any(file.name.endswith(".rar") for file in self.torrent_files):
+            self.is_rarred = True
+
+        # Is dangerous?
+        self.is_dangerous = self.check_dangerous()
 
         # Has multiple files?
         self.is_multi_file = False
@@ -175,6 +176,23 @@ class TorrentInfo:
                 if self.is_hard_link(filename):
                     self.is_hardlinked = True
                     break
+
+    def check_dangerous(self):
+        dangerous_extensions = [
+            ".arj",
+            ".lnk",
+            ".lzh",
+            ".ps1",
+            ".scr",
+            ".vbs",
+            ".zipx"
+        ]
+
+        if any(file.name.endswith(ext) for ext in dangerous_extensions for file in self.torrent_files):
+            return True
+
+        return False
+
 
     def is_hard_link(self, filename):
         # Check if filename is already cached

@@ -248,6 +248,10 @@ class TorrentManager:
         if torrent_info.is_unregistered and torrent_info.cross_seed_state == CrossSeedState.NONE:
             torrent_info.delete_state = DeleteState.READY
 
+        # Has dangerous file?
+        if torrent_info.is_dangerous:
+            torrent_info.delete_state = DeleteState.MALWARE_DELETE
+
         if torrent_info.delete_state == DeleteState.NONE:
             # Set tracker delete days, default to 0 if None
             tracker_delete_days = torrent_info.tracker_opts.get("delete", 0)
