@@ -28,7 +28,14 @@ if __name__ == "__main__":
     default_config = OrderedDict([
         ('server', 'localhost'),
         ('port', 8080),
+        ('username', ''),
+        ('password', ''),
         ('tracker_config', 'trackers.json'),
+        # Number of parallel workers used to fetch per-torrent trackers/files in Phase 1.
+        # qBittorrent's WebUI tends to serialize API requests server-side, so high values
+        # add lock contention and can be slower; low values (2-4) are usually optimal.
+        # Tune per server: raise it only if your instance benefits from more concurrency.
+        ('fetch_workers', 4),
         ('path_mappings', []),
         ('options', {
             'tag_hardlink': False   ,
@@ -109,6 +116,9 @@ if __name__ == "__main__":
                     print(torrent_info.to_str(args.output_extended))
                 else:
                     print(f"\nWARNING: Torrent with hash {torrent_hash} not found.\n")
+
+        # surface any trackers missing from trackers.json as the final summary line
+        manager.warn_unmatched_trackers()
 
     except Exception as e:
         msg = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"

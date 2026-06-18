@@ -2,6 +2,8 @@ import qbittorrentapi
 import sys
 import os
 import shutil
+import threading
+import concurrent.futures
 
 from colorama import Fore, Back, Style, init
 from tqdm import tqdm
@@ -43,33 +45,95 @@ class TorrentManager:
             print(f"Exiting!")
             exit(1)  # Exit early if we can't fetch the torrents
 
-        # for torrent_dict in qb_torrents:
-        for torrent_dict in tqdm(qb_torrents, desc="Processing torrents", unit=" torrent", ncols=120):
+        # Phase A: fetch each torrent's trackers and files in parallel (I/O bound).
+        # qbittorrentapi wraps a requests.Session, which isn't safe to share across
+        # threads, so each worker thread lazily builds its own client (thread-local).
+        fetched = {}            # hash -> (torrent_trackers, torrent_files)
+        errors = []             # (name, hash, exception)
+        thread_local = threading.local()
 
-            # get additional torrent info
+        def worker_client():
+            client = getattr(thread_local, "client", None)
+            if client is None:
+                client = self._build_client()
+                thread_local.client = client
+            return client
+
+        def fetch(torrent_dict):
+            h, name = torrent_dict.hash, torrent_dict.name
             try:
-
-                torrent_trackers = self.qb.torrents_trackers(torrent_dict.hash)
-                torrent_files = self.qb.torrents_files(torrent_dict.hash)
-
-                # create new TorrentInfo object and add it to dict
-                self.torrent_info_list[torrent_dict.hash] = TorrentInfo(torrent_dict, torrent_files, torrent_trackers, self.tracker_options)
-
+                qb = worker_client()
+                trackers = qb.torrents_trackers(h)
+                files = qb.torrents_files(h)
+                return (h, name, trackers, files, None)
             except Exception as e:
-                print(f"Error processing torrent {torrent_dict.name} (hash: {torrent_dict.hash}): {e}")
-                print(f"Exiting!")
-                exit(1)  # Exit early if we can't fetch the torrents
+                return (h, name, None, None, e)
+
+        workers = util.Config_Manager.get("fetch_workers") or 4
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(fetch, td) for td in qb_torrents]
+            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Fetching torrent details", unit=" torrent", ncols=120):
+                h, name, trackers, files, err = future.result()
+                if err is not None:
+                    errors.append((name, h, err))
+                else:
+                    fetched[h] = (trackers, files)
+
+        # Phase B: construct TorrentInfo sequentially. Construction mutates class-level
+        # shared state (ContentPath_Dict, Stat_Cache), so it must stay single-threaded;
+        # iterating qb_torrents in order keeps cross-seed grouping deterministic.
+        for torrent_dict in tqdm(qb_torrents, desc="Processing torrents", unit=" torrent", ncols=120):
+            if torrent_dict.hash not in fetched:
+                continue  # fetch failed for this torrent; reported below
+            torrent_trackers, torrent_files = fetched[torrent_dict.hash]
+            self.torrent_info_list[torrent_dict.hash] = TorrentInfo(torrent_dict, torrent_files, torrent_trackers, self.tracker_options)
+
+        # If any fetch failed, report every failure and abort. Proceeding with missing
+        # torrents could corrupt cross-seed analysis and lead to wrong deletions.
+        if errors:
+            print(f"\nERROR: Failed to fetch details for {len(errors)} torrent(s):")
+            display_limit = 25
+            for name, h, err in errors[:display_limit]:
+                print(f"  - {name} ({h}): {err}")
+            if len(errors) > display_limit:
+                print(f"  ... and {len(errors) - display_limit} more.")
+            print("Exiting without making changes!")
+            exit(1)
 
         # store hashes per tag in a list, used for keep_last
         self.build_tag_to_hashes()
+
+    def warn_unmatched_trackers(self):
+
+        # Collect announce hosts that matched no entry in trackers.json, deduplicated,
+        # keeping one example torrent name per host.
+        unmatched = {}
+        for torrent_info in self.torrent_info_list.values():
+            for host in torrent_info.unmatched_tracker_hosts:
+                unmatched.setdefault(host, torrent_info._name)
+
+        if not unmatched:
+            return
+
+        msg = f"WARNING: {len(unmatched)} tracker host(s) have no entry in trackers.json. These torrents were left untagged - add them to trackers.json (or define a 'public' entry):"
+        print(f"\n{msg}" if self.no_color else f"\n{Fore.YELLOW}{msg}{Fore.RESET}")
+        for host, example_name in sorted(unmatched.items()):
+            print(f"  - {host if self.no_color else f'{Fore.YELLOW}{host}{Fore.RESET}'}  (e.g. {example_name})")
+            print()
 
     def analyze_torrents(self):
 
         # process the list for cross-seeds and deletes and set torrentinfo object props accordingly
         print(f"\n=== Phase 2: Analyzing torrents ===")
+        # torrents past their delete threshold, collected during pass 1 and given
+        # keep_last protection afterwards (see apply_keep_last)
+        self._keep_last_eligible = []
         # for torrent_info in self.torrent_info_list.values():
         for torrent_info in tqdm(self.torrent_info_list.values(), desc="Processing torrents (first pass)", unit=" torrent", ncols=120):
             self.analyze_torrent(torrent_info)
+
+        # cross_seed_state is now finalized for every torrent; apply keep_last protection
+        self.apply_keep_last()
 
         # set torrentinfo props, separate loop to make sure cross-seed orphans are set properly
         # for torrent_info in self.torrent_info_list.values():
@@ -252,7 +316,10 @@ class TorrentManager:
         if torrent_info.is_dangerous:
             torrent_info.delete_state = DeleteState.MALWARE_DELETE
 
-        if torrent_info.delete_state == DeleteState.NONE:
+        # tracker_opts is None when the torrent matches no entry in trackers.json
+        # (e.g. a private tracker not listed, or no "public" fallback entry). Skip
+        # delete-day handling for those torrents instead of crashing.
+        if torrent_info.delete_state == DeleteState.NONE and torrent_info.tracker_opts:
             # Set tracker delete days, default to 0 if None
             tracker_delete_days = torrent_info.tracker_opts.get("delete", 0)
             if torrent_info.has_autobrr_tag:
@@ -261,7 +328,9 @@ class TorrentManager:
             # Handle delete states for torrents past delete threshold. Incomplete torrents should have negative value for torrent_completed_since_days
             self.handle_delete_state(torrent_info, tracker_delete_days)
             if tracker_delete_days > 0 and torrent_info.torrent_completed_since_days > tracker_delete_days:
-                self.handle_keep_last(torrent_info)
+                # Defer keep_last: it needs every torrent's cross_seed_state finalized,
+                # which only holds once pass 1 completes. Record eligibility for now.
+                self._keep_last_eligible.append(torrent_info)
 
     def handle_delete_state(self, torrent_info: TorrentInfo, tracker_delete_days):
 
@@ -310,29 +379,52 @@ class TorrentManager:
                     for cross_hash in torrent_info.cross_seed_hashes:
                         self.torrent_info_list[cross_hash].delete_state = DeleteState.DELETE_IF_NEEDED if self.torrent_info_list[cross_hash].is_polite_to_seed else DeleteState.READY
 
-    def handle_keep_last(self, torrent_info: TorrentInfo):
-        # Preserve keep_last number of torrents for tracker, if set. Useful for bonus points.
-        tracker_keep_last = torrent_info.tracker_opts.get("keep_last", 0) or 0
+    def apply_keep_last(self):
+        # Preserve keep_last number of torrents per tracker, if set. Useful for bonus points.
+        # Runs after pass 1 so cross_seed_state is finalized for every torrent. The keep set
+        # is identical for all torrents on a tracker, so it's computed once per tracker here
+        # (recomputing per torrent made this O(K^2 log K) per tracker).
+        keep_sets = {}
+        for torrent_info in self._keep_last_eligible:
+            tracker_keep_last = torrent_info.tracker_opts.get("keep_last", 0) or 0
+            if tracker_keep_last <= 0:
+                continue
 
-        if tracker_keep_last > 0:
-            # Get all hashes associated with the tracker's tag, excluding torrents with "autobrr" tag and size over 10GB
-            relevant_hashes = [
-                h
-                for h in self.torrent_tag_hashes_list.get(torrent_info.tracker_name.strip(), [])
-                if self.torrent_info_list[h].cross_seed_state == CrossSeedState.NONE
-                and not self.torrent_info_list[h].has_autobrr_tag
-                and self.torrent_info_list[h].torrent_dict.get("size", 0) <= 10 * 1024**3  # 10GB in bytes
-            ]
+            tracker = torrent_info.tracker_name.strip()
+            keep_last_hashes = keep_sets.get(tracker)
+            if keep_last_hashes is None:
+                # Get all hashes associated with the tracker's tag, excluding cross-seeds,
+                # torrents with the "autobrr" tag, and torrents over 10GB.
+                relevant_hashes = [
+                    h
+                    for h in self.torrent_tag_hashes_list.get(tracker, [])
+                    if self.torrent_info_list[h].cross_seed_state == CrossSeedState.NONE
+                    and not self.torrent_info_list[h].has_autobrr_tag
+                    and self.torrent_info_list[h].torrent_dict.get("size", 0) <= 10 * 1024**3  # 10GB in bytes
+                ]
 
-            # Sort torrents by their added_on time
-            sorted_items = sorted(relevant_hashes, key=lambda h: self.torrent_info_list[h].torrent_dict.get("added_on", float("inf")))
+                # Sort torrents by their added_on time, keep the oldest `tracker_keep_last`
+                relevant_hashes.sort(key=lambda h: self.torrent_info_list[h].torrent_dict.get("added_on", float("inf")))
+                keep_last_hashes = set(relevant_hashes[:tracker_keep_last])
+                keep_sets[tracker] = keep_last_hashes
 
-            # Get the hashes for the last `tracker_keep_last` torrents
-            keep_last_hashes = sorted_items[:tracker_keep_last]
-
-            # If the current torrent's hash is in the keep_last list, mark it as NEVER delete
+            # If this torrent is among the kept, mark it KEEP_LAST (protect from deletion)
             if torrent_info._hash in keep_last_hashes:
                 torrent_info.delete_state = DeleteState.KEEP_LAST
+
+    def _build_client(self) -> qbittorrentapi.Client:
+        # Build a qBittorrent client from config. Optional WebUI credentials are only
+        # passed when set, so installs that bypass auth for the host/LAN are unchanged.
+        # Used both for the main client and for each parallel fetch worker (each thread
+        # needs its own, since the underlying requests.Session isn't thread-safe).
+        client_kwargs = {"host": self.server, "port": self.port}
+        username = util.Config_Manager.get("username")
+        password = util.Config_Manager.get("password")
+        if username:
+            client_kwargs["username"] = username
+        if password:
+            client_kwargs["password"] = password
+        return qbittorrentapi.Client(**client_kwargs)
 
     def connect_to_qb(self, server, port) -> qbittorrentapi.Client:
         try:
@@ -340,7 +432,9 @@ class TorrentManager:
                 print(f"\nConnecting to: {server}:{port}")
             else:
                 print(f"\nConnecting to: {Fore.GREEN}{server}:{port}{Fore.RESET}")
-            qb = qbittorrentapi.Client(host=server, port=port)
+            qb = self._build_client()
+            # Accessing qb.app.version forces the lazy login, so bad credentials or an
+            # unreachable host fail here with a clear message rather than mid-run.
             if self.no_color:
                 print(f"qBittorrent: {qb.app.version}")
             else:
@@ -348,8 +442,8 @@ class TorrentManager:
             # for k, v in qb.app.build_info.items():
             #     print(f" -- {k}: {v}")
             return qb
-        except qbittorrentapi.exceptions.APIConnectionError as e:
-            print(f"ERROR: {e}")
+        except Exception as e:
+            print(f"ERROR: Failed to connect to qBittorrent at {server}:{port}: {e}")
             sys.exit(1)
 
 
@@ -364,8 +458,8 @@ class TorrentManager:
                 else:
                     self.qb.torrents_add_tags(tag, torrent_hash)
                     print(f"  Adding tag '{tag if self.no_color else f'{Fore.GREEN}{tag}{Fore.RESET}'}' to torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
-            except:
-                print(f"  Failed to set tag '{tag}' for {torrent_hash}")
+            except Exception as e:
+                print(f"  Failed to set tag '{tag}' for {torrent_hash}: {e}")
 
     def qb_remove_category(self, torrent_info: TorrentInfo):
 
@@ -377,8 +471,8 @@ class TorrentManager:
             else:
                 print(f"  Removing category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                 self.qb.torrents_set_category("", torrent_hash)
-        except:
-            print(f"  Failed to removing category on torrent for {torrent_hash}")
+        except Exception as e:
+            print(f"  Failed to remove category on torrent for {torrent_hash}: {e}")
 
     def qb_remove_tag(self, torrent_info: TorrentInfo):
 
@@ -390,21 +484,21 @@ class TorrentManager:
                 else:
                     print(f"  Removing tag '{tag if self.no_color else f'{Fore.RED}{tag}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                     self.qb.torrents_remove_tags(tag, torrent_hash)
-            except:
-                print(f"  Failed to remove tag '{tag}' from {torrent_hash}")
+            except Exception as e:
+                print(f"  Failed to remove tag '{tag}' from {torrent_hash}: {e}")
 
     def qb_set_upload_limit(self, torrent_info: TorrentInfo):
 
+        upload_limit = torrent_info.update_upload_limit
+        torrent_hash = torrent_info._hash
         try:
-            upload_limit = torrent_info.update_upload_limit
-            torrent_hash = torrent_info._hash
             if self.dry_run:
                 print(f"  [DRY RUN] Will set upload_limit to '{upload_limit if self.no_color else f'{Fore.GREEN}{upload_limit}{Fore.RESET}'}' for torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
             else:
                 print(f"  Setting upload_limit to '{upload_limit if self.no_color else f'{Fore.GREEN}{upload_limit}{Fore.RESET}'}' for torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                 self.qb.torrents_set_upload_limit(upload_limit, torrent_hash)
-        except:
-            print(f"  Failed to set upload limit for {torrent_hash}")
+        except Exception as e:
+            print(f"  Failed to set upload limit for {torrent_hash}: {e}")
 
     def move_orphaned(self):
         print("\n=== Find and move orphaned files ===")
