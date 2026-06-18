@@ -31,6 +31,7 @@ if __name__ == "__main__":
         ('username', ''),
         ('password', ''),
         ('tracker_config', 'trackers.json'),
+        ('fetch_workers', 10),
         ('path_mappings', []),
         ('options', {
             'tag_hardlink': False   ,

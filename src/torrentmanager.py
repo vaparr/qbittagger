@@ -2,6 +2,8 @@ import qbittorrentapi
 import sys
 import os
 import shutil
+import threading
+import concurrent.futures
 
 from colorama import Fore, Back, Style, init
 from tqdm import tqdm
@@ -43,22 +45,60 @@ class TorrentManager:
             print(f"Exiting!")
             exit(1)  # Exit early if we can't fetch the torrents
 
-        # for torrent_dict in qb_torrents:
-        for torrent_dict in tqdm(qb_torrents, desc="Processing torrents", unit=" torrent", ncols=120):
+        # Phase A: fetch each torrent's trackers and files in parallel (I/O bound).
+        # qbittorrentapi wraps a requests.Session, which isn't safe to share across
+        # threads, so each worker thread lazily builds its own client (thread-local).
+        fetched = {}            # hash -> (torrent_trackers, torrent_files)
+        errors = []             # (name, hash, exception)
+        thread_local = threading.local()
 
-            # get additional torrent info
+        def worker_client():
+            client = getattr(thread_local, "client", None)
+            if client is None:
+                client = self._build_client()
+                thread_local.client = client
+            return client
+
+        def fetch(torrent_dict):
+            h, name = torrent_dict.hash, torrent_dict.name
             try:
-
-                torrent_trackers = self.qb.torrents_trackers(torrent_dict.hash)
-                torrent_files = self.qb.torrents_files(torrent_dict.hash)
-
-                # create new TorrentInfo object and add it to dict
-                self.torrent_info_list[torrent_dict.hash] = TorrentInfo(torrent_dict, torrent_files, torrent_trackers, self.tracker_options)
-
+                qb = worker_client()
+                trackers = qb.torrents_trackers(h)
+                files = qb.torrents_files(h)
+                return (h, name, trackers, files, None)
             except Exception as e:
-                print(f"Error processing torrent {torrent_dict.name} (hash: {torrent_dict.hash}): {e}")
-                print(f"Exiting!")
-                exit(1)  # Exit early if we can't fetch the torrents
+                return (h, name, None, None, e)
+
+        workers = util.Config_Manager.get("fetch_workers") or 10
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(fetch, td) for td in qb_torrents]
+            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Fetching torrent details", unit=" torrent", ncols=120):
+                h, name, trackers, files, err = future.result()
+                if err is not None:
+                    errors.append((name, h, err))
+                else:
+                    fetched[h] = (trackers, files)
+
+        # Phase B: construct TorrentInfo sequentially. Construction mutates class-level
+        # shared state (ContentPath_Dict, Stat_Cache), so it must stay single-threaded;
+        # iterating qb_torrents in order keeps cross-seed grouping deterministic.
+        for torrent_dict in tqdm(qb_torrents, desc="Processing torrents", unit=" torrent", ncols=120):
+            if torrent_dict.hash not in fetched:
+                continue  # fetch failed for this torrent; reported below
+            torrent_trackers, torrent_files = fetched[torrent_dict.hash]
+            self.torrent_info_list[torrent_dict.hash] = TorrentInfo(torrent_dict, torrent_files, torrent_trackers, self.tracker_options)
+
+        # If any fetch failed, report every failure and abort. Proceeding with missing
+        # torrents could corrupt cross-seed analysis and lead to wrong deletions.
+        if errors:
+            print(f"\nERROR: Failed to fetch details for {len(errors)} torrent(s):")
+            display_limit = 25
+            for name, h, err in errors[:display_limit]:
+                print(f"  - {name} ({h}): {err}")
+            if len(errors) > display_limit:
+                print(f"  ... and {len(errors) - display_limit} more.")
+            print("Exiting without making changes!")
+            exit(1)
 
         # store hashes per tag in a list, used for keep_last
         self.build_tag_to_hashes()
@@ -357,22 +397,27 @@ class TorrentManager:
             if torrent_info._hash in keep_last_hashes:
                 torrent_info.delete_state = DeleteState.KEEP_LAST
 
-    def connect_to_qb(self, server, port) -> qbittorrentapi.Client:
-        # Optional WebUI credentials. Only passed when set, so installs that bypass
-        # auth for the host/LAN keep working unchanged.
+    def _build_client(self) -> qbittorrentapi.Client:
+        # Build a qBittorrent client from config. Optional WebUI credentials are only
+        # passed when set, so installs that bypass auth for the host/LAN are unchanged.
+        # Used both for the main client and for each parallel fetch worker (each thread
+        # needs its own, since the underlying requests.Session isn't thread-safe).
+        client_kwargs = {"host": self.server, "port": self.port}
         username = util.Config_Manager.get("username")
         password = util.Config_Manager.get("password")
+        if username:
+            client_kwargs["username"] = username
+        if password:
+            client_kwargs["password"] = password
+        return qbittorrentapi.Client(**client_kwargs)
+
+    def connect_to_qb(self, server, port) -> qbittorrentapi.Client:
         try:
             if self.no_color:
                 print(f"\nConnecting to: {server}:{port}")
             else:
                 print(f"\nConnecting to: {Fore.GREEN}{server}:{port}{Fore.RESET}")
-            client_kwargs = {"host": server, "port": port}
-            if username:
-                client_kwargs["username"] = username
-            if password:
-                client_kwargs["password"] = password
-            qb = qbittorrentapi.Client(**client_kwargs)
+            qb = self._build_client()
             # Accessing qb.app.version forces the lazy login, so bad credentials or an
             # unreachable host fail here with a clear message rather than mid-run.
             if self.no_color:
