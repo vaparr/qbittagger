@@ -63,6 +63,26 @@ class TorrentManager:
         # store hashes per tag in a list, used for keep_last
         self.build_tag_to_hashes()
 
+        # warn about trackers that have no entry in trackers.json
+        self.warn_unmatched_trackers()
+
+    def warn_unmatched_trackers(self):
+
+        # Collect announce hosts that matched no entry in trackers.json, deduplicated,
+        # keeping one example torrent name per host.
+        unmatched = {}
+        for torrent_info in self.torrent_info_list.values():
+            for host in torrent_info.unmatched_tracker_hosts:
+                unmatched.setdefault(host, torrent_info._name)
+
+        if not unmatched:
+            return
+
+        msg = f"WARNING: {len(unmatched)} tracker host(s) have no entry in trackers.json. These torrents were left untagged - add them to trackers.json (or define a 'public' entry):"
+        print(f"\n{msg}" if self.no_color else f"\n{Fore.YELLOW}{msg}{Fore.RESET}")
+        for host, example_name in sorted(unmatched.items()):
+            print(f"  - {host if self.no_color else f'{Fore.YELLOW}{host}{Fore.RESET}'}  (e.g. {example_name})")
+
     def analyze_torrents(self):
 
         # process the list for cross-seeds and deletes and set torrentinfo object props accordingly
@@ -252,7 +272,10 @@ class TorrentManager:
         if torrent_info.is_dangerous:
             torrent_info.delete_state = DeleteState.MALWARE_DELETE
 
-        if torrent_info.delete_state == DeleteState.NONE:
+        # tracker_opts is None when the torrent matches no entry in trackers.json
+        # (e.g. a private tracker not listed, or no "public" fallback entry). Skip
+        # delete-day handling for those torrents instead of crashing.
+        if torrent_info.delete_state == DeleteState.NONE and torrent_info.tracker_opts:
             # Set tracker delete days, default to 0 if None
             tracker_delete_days = torrent_info.tracker_opts.get("delete", 0)
             if torrent_info.has_autobrr_tag:

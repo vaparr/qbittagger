@@ -2,6 +2,7 @@ import re
 import os
 from enum import Enum, Flag, auto
 from collections import defaultdict
+from urllib.parse import urlparse
 
 from . import util
 
@@ -133,6 +134,16 @@ class TorrentInfo:
             self.tracker_name = "public"
             public_tracker_entry = next((tracker for tracker in tracker_options if tracker["name"] == "public"), None)
             self.tracker_opts = public_tracker_entry
+
+        # Trackers with no matching entry in trackers.json. These torrents get left
+        # untagged; collect their announce hosts so the manager can warn about them.
+        self.unmatched_tracker_hosts = []
+        if self.tracker_opts is None:
+            self.unmatched_tracker_hosts = sorted({
+                urlparse(tracker.url).hostname
+                for tracker in self.torrent_trackers_filtered
+                if urlparse(tracker.url).hostname
+            })
 
         # Is rarred?
         self.is_rarred = False
