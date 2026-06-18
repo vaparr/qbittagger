@@ -103,9 +103,6 @@ class TorrentManager:
         # store hashes per tag in a list, used for keep_last
         self.build_tag_to_hashes()
 
-        # warn about trackers that have no entry in trackers.json
-        self.warn_unmatched_trackers()
-
     def warn_unmatched_trackers(self):
 
         # Collect announce hosts that matched no entry in trackers.json, deduplicated,
@@ -122,6 +119,7 @@ class TorrentManager:
         print(f"\n{msg}" if self.no_color else f"\n{Fore.YELLOW}{msg}{Fore.RESET}")
         for host, example_name in sorted(unmatched.items()):
             print(f"  - {host if self.no_color else f'{Fore.YELLOW}{host}{Fore.RESET}'}  (e.g. {example_name})")
+            print()
 
     def analyze_torrents(self):
 

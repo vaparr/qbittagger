@@ -113,6 +113,9 @@ if __name__ == "__main__":
                 else:
                     print(f"\nWARNING: Torrent with hash {torrent_hash} not found.\n")
 
+        # surface any trackers missing from trackers.json as the final summary line
+        manager.warn_unmatched_trackers()
+
     except Exception as e:
         msg = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
         print("\n!!! Script failure !!!\n")
