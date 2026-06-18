@@ -69,7 +69,7 @@ class TorrentManager:
             except Exception as e:
                 return (h, name, None, None, e)
 
-        workers = util.Config_Manager.get("fetch_workers") or 10
+        workers = util.Config_Manager.get("fetch_workers") or 4
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(fetch, td) for td in qb_torrents]
             for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Fetching torrent details", unit=" torrent", ncols=120):

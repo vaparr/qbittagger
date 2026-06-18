@@ -31,7 +31,11 @@ if __name__ == "__main__":
         ('username', ''),
         ('password', ''),
         ('tracker_config', 'trackers.json'),
-        ('fetch_workers', 10),
+        # Number of parallel workers used to fetch per-torrent trackers/files in Phase 1.
+        # qBittorrent's WebUI tends to serialize API requests server-side, so high values
+        # add lock contention and can be slower; low values (2-4) are usually optimal.
+        # Tune per server: raise it only if your instance benefits from more concurrency.
+        ('fetch_workers', 4),
         ('path_mappings', []),
         ('options', {
             'tag_hardlink': False   ,
