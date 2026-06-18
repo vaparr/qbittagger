@@ -90,30 +90,32 @@ class TorrentInfo:
         # hardlink tag
         self.has_hardlink_tag = TagNames.HARDLINK.value in self.current_tags
 
-        # private/unregistered based on tracker message
-        self.is_private = False
+        # private comes straight from qBittorrent (reliable; qBit >= 4.5). Fall back to the
+        # tracker-message heuristic only if the field is absent (older servers).
+        if torrent_dict.get("private") is not None:
+            self.is_private = bool(torrent_dict["private"])
+        else:
+            self.is_private = any("private" in tracker["msg"].lower() for tracker in self.torrent_trackers)
+
+        # unregistered based on tracker message (matched case-insensitively)
+        unregistered_keywords = [
+            "unregistered",
+            "not registered",
+            "pack out",
+            "complete season",
+            "dupe of",
+            "beyond-hd.me",
+            "infohash not found",
+            "tracker inactive",
+            "invalid infohash",
+            "unregistered torrent",
+        ]
         self.is_unregistered = False
         for tracker in self.torrent_trackers:
-            msg = tracker["msg"]
-            if "private" in msg:
-                self.is_private = True
-
-            if any(
-                keyword in msg
-                for keyword in [
-                    "Unregistered",
-                    "not registered",
-                    "pack out",
-                    "Complete Season",
-                    "Dupe of",
-                    "beyond-hd.me",
-                    "InfoHash not found",
-                    "Tracker Inactive",
-                    "Invalid InfoHash",
-                    "unregistered torrent",
-                ]
-            ):
+            msg = tracker["msg"].lower()
+            if any(keyword in msg for keyword in unregistered_keywords):
                 self.is_unregistered = True
+                break
 
         # Find the first matching tracker for the torrent
         self.tracker_opts = None
@@ -227,7 +229,7 @@ class TorrentInfo:
             r"S\d{1,2}[^E]",  # Match season like "S01", "S01-S02", without episode
             r"Season \d+",  # Match "Season 1", "Season 2"
             r"Series \d+",  # Match "Series 1", "Series 2"
-            r"S\d{1,2}\s?$"  # Match patterns like "S05" at the end with optional spaces
+            r"S\d{1,2}\s?$",  # Match patterns like "S05" at the end with optional spaces
             r"Complete",  # Match "Complete" in the name
         ]
         episode_pattern = r"S\d{2}\.?E\d{2}"  # Match episodes like "S01E01", "S02E03"
