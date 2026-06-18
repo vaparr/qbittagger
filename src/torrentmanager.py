@@ -127,9 +127,15 @@ class TorrentManager:
 
         # process the list for cross-seeds and deletes and set torrentinfo object props accordingly
         print(f"\n=== Phase 2: Analyzing torrents ===")
+        # torrents past their delete threshold, collected during pass 1 and given
+        # keep_last protection afterwards (see apply_keep_last)
+        self._keep_last_eligible = []
         # for torrent_info in self.torrent_info_list.values():
         for torrent_info in tqdm(self.torrent_info_list.values(), desc="Processing torrents (first pass)", unit=" torrent", ncols=120):
             self.analyze_torrent(torrent_info)
+
+        # cross_seed_state is now finalized for every torrent; apply keep_last protection
+        self.apply_keep_last()
 
         # set torrentinfo props, separate loop to make sure cross-seed orphans are set properly
         # for torrent_info in self.torrent_info_list.values():
@@ -324,7 +330,9 @@ class TorrentManager:
             # Handle delete states for torrents past delete threshold. Incomplete torrents should have negative value for torrent_completed_since_days
             self.handle_delete_state(torrent_info, tracker_delete_days)
             if tracker_delete_days > 0 and torrent_info.torrent_completed_since_days > tracker_delete_days:
-                self.handle_keep_last(torrent_info)
+                # Defer keep_last: it needs every torrent's cross_seed_state finalized,
+                # which only holds once pass 1 completes. Record eligibility for now.
+                self._keep_last_eligible.append(torrent_info)
 
     def handle_delete_state(self, torrent_info: TorrentInfo, tracker_delete_days):
 
@@ -373,27 +381,36 @@ class TorrentManager:
                     for cross_hash in torrent_info.cross_seed_hashes:
                         self.torrent_info_list[cross_hash].delete_state = DeleteState.DELETE_IF_NEEDED if self.torrent_info_list[cross_hash].is_polite_to_seed else DeleteState.READY
 
-    def handle_keep_last(self, torrent_info: TorrentInfo):
-        # Preserve keep_last number of torrents for tracker, if set. Useful for bonus points.
-        tracker_keep_last = torrent_info.tracker_opts.get("keep_last", 0) or 0
+    def apply_keep_last(self):
+        # Preserve keep_last number of torrents per tracker, if set. Useful for bonus points.
+        # Runs after pass 1 so cross_seed_state is finalized for every torrent. The keep set
+        # is identical for all torrents on a tracker, so it's computed once per tracker here
+        # (recomputing per torrent made this O(K^2 log K) per tracker).
+        keep_sets = {}
+        for torrent_info in self._keep_last_eligible:
+            tracker_keep_last = torrent_info.tracker_opts.get("keep_last", 0) or 0
+            if tracker_keep_last <= 0:
+                continue
 
-        if tracker_keep_last > 0:
-            # Get all hashes associated with the tracker's tag, excluding torrents with "autobrr" tag and size over 10GB
-            relevant_hashes = [
-                h
-                for h in self.torrent_tag_hashes_list.get(torrent_info.tracker_name.strip(), [])
-                if self.torrent_info_list[h].cross_seed_state == CrossSeedState.NONE
-                and not self.torrent_info_list[h].has_autobrr_tag
-                and self.torrent_info_list[h].torrent_dict.get("size", 0) <= 10 * 1024**3  # 10GB in bytes
-            ]
+            tracker = torrent_info.tracker_name.strip()
+            keep_last_hashes = keep_sets.get(tracker)
+            if keep_last_hashes is None:
+                # Get all hashes associated with the tracker's tag, excluding cross-seeds,
+                # torrents with the "autobrr" tag, and torrents over 10GB.
+                relevant_hashes = [
+                    h
+                    for h in self.torrent_tag_hashes_list.get(tracker, [])
+                    if self.torrent_info_list[h].cross_seed_state == CrossSeedState.NONE
+                    and not self.torrent_info_list[h].has_autobrr_tag
+                    and self.torrent_info_list[h].torrent_dict.get("size", 0) <= 10 * 1024**3  # 10GB in bytes
+                ]
 
-            # Sort torrents by their added_on time
-            sorted_items = sorted(relevant_hashes, key=lambda h: self.torrent_info_list[h].torrent_dict.get("added_on", float("inf")))
+                # Sort torrents by their added_on time, keep the oldest `tracker_keep_last`
+                relevant_hashes.sort(key=lambda h: self.torrent_info_list[h].torrent_dict.get("added_on", float("inf")))
+                keep_last_hashes = set(relevant_hashes[:tracker_keep_last])
+                keep_sets[tracker] = keep_last_hashes
 
-            # Get the hashes for the last `tracker_keep_last` torrents
-            keep_last_hashes = sorted_items[:tracker_keep_last]
-
-            # If the current torrent's hash is in the keep_last list, mark it as NEVER delete
+            # If this torrent is among the kept, mark it KEEP_LAST (protect from deletion)
             if torrent_info._hash in keep_last_hashes:
                 torrent_info.delete_state = DeleteState.KEEP_LAST
 
