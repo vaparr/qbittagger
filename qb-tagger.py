@@ -28,6 +28,8 @@ if __name__ == "__main__":
     default_config = OrderedDict([
         ('server', 'localhost'),
         ('port', 8080),
+        ('username', ''),
+        ('password', ''),
         ('tracker_config', 'trackers.json'),
         ('path_mappings', []),
         ('options', {

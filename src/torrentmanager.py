@@ -358,12 +358,23 @@ class TorrentManager:
                 torrent_info.delete_state = DeleteState.KEEP_LAST
 
     def connect_to_qb(self, server, port) -> qbittorrentapi.Client:
+        # Optional WebUI credentials. Only passed when set, so installs that bypass
+        # auth for the host/LAN keep working unchanged.
+        username = util.Config_Manager.get("username")
+        password = util.Config_Manager.get("password")
         try:
             if self.no_color:
                 print(f"\nConnecting to: {server}:{port}")
             else:
                 print(f"\nConnecting to: {Fore.GREEN}{server}:{port}{Fore.RESET}")
-            qb = qbittorrentapi.Client(host=server, port=port)
+            client_kwargs = {"host": server, "port": port}
+            if username:
+                client_kwargs["username"] = username
+            if password:
+                client_kwargs["password"] = password
+            qb = qbittorrentapi.Client(**client_kwargs)
+            # Accessing qb.app.version forces the lazy login, so bad credentials or an
+            # unreachable host fail here with a clear message rather than mid-run.
             if self.no_color:
                 print(f"qBittorrent: {qb.app.version}")
             else:
@@ -371,8 +382,8 @@ class TorrentManager:
             # for k, v in qb.app.build_info.items():
             #     print(f" -- {k}: {v}")
             return qb
-        except qbittorrentapi.exceptions.APIConnectionError as e:
-            print(f"ERROR: {e}")
+        except Exception as e:
+            print(f"ERROR: Failed to connect to qBittorrent at {server}:{port}: {e}")
             sys.exit(1)
 
 
@@ -387,8 +398,8 @@ class TorrentManager:
                 else:
                     self.qb.torrents_add_tags(tag, torrent_hash)
                     print(f"  Adding tag '{tag if self.no_color else f'{Fore.GREEN}{tag}{Fore.RESET}'}' to torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
-            except:
-                print(f"  Failed to set tag '{tag}' for {torrent_hash}")
+            except Exception as e:
+                print(f"  Failed to set tag '{tag}' for {torrent_hash}: {e}")
 
     def qb_remove_category(self, torrent_info: TorrentInfo):
 
@@ -400,8 +411,8 @@ class TorrentManager:
             else:
                 print(f"  Removing category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                 self.qb.torrents_set_category("", torrent_hash)
-        except:
-            print(f"  Failed to removing category on torrent for {torrent_hash}")
+        except Exception as e:
+            print(f"  Failed to remove category on torrent for {torrent_hash}: {e}")
 
     def qb_remove_tag(self, torrent_info: TorrentInfo):
 
@@ -413,21 +424,21 @@ class TorrentManager:
                 else:
                     print(f"  Removing tag '{tag if self.no_color else f'{Fore.RED}{tag}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                     self.qb.torrents_remove_tags(tag, torrent_hash)
-            except:
-                print(f"  Failed to remove tag '{tag}' from {torrent_hash}")
+            except Exception as e:
+                print(f"  Failed to remove tag '{tag}' from {torrent_hash}: {e}")
 
     def qb_set_upload_limit(self, torrent_info: TorrentInfo):
 
+        upload_limit = torrent_info.update_upload_limit
+        torrent_hash = torrent_info._hash
         try:
-            upload_limit = torrent_info.update_upload_limit
-            torrent_hash = torrent_info._hash
             if self.dry_run:
                 print(f"  [DRY RUN] Will set upload_limit to '{upload_limit if self.no_color else f'{Fore.GREEN}{upload_limit}{Fore.RESET}'}' for torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
             else:
                 print(f"  Setting upload_limit to '{upload_limit if self.no_color else f'{Fore.GREEN}{upload_limit}{Fore.RESET}'}' for torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
                 self.qb.torrents_set_upload_limit(upload_limit, torrent_hash)
-        except:
-            print(f"  Failed to set upload limit for {torrent_hash}")
+        except Exception as e:
+            print(f"  Failed to set upload limit for {torrent_hash}: {e}")
 
     def move_orphaned(self):
         print("\n=== Find and move orphaned files ===")
