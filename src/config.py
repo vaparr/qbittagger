@@ -95,34 +95,10 @@ class ConfigManager:
         return ordered_config
 
     def get(self, key, default=None):
-        """
-        Retrieve a configuration value by key. If the key doesn't exist,
-        check for a default value, otherwise return None or the provided default.
-
-        :param key: The configuration key to retrieve.
-        :param default: A fallback default value if the key is not found.
-        :return: The value from the config or the default.
-        """
+        """Retrieve a configuration value by key, or `default` if it's missing."""
         return self.config.get(key, default)
-
-    def set(self, key, value):
-        """
-        Set a configuration value by key.
-
-        :param key: The configuration key.
-        :param value: The value to set.
-        """
-        self.config[key] = value
 
     def save(self):
         """Save the current configuration back to the YAML file, preserving root-level order."""
         with open(self.config_file, 'w') as file:
             yaml.dump(self.config, file, Dumper=self._get_ordered_dumper(), default_flow_style=False)
-
-    def get_all(self):
-        """
-        Retrieve the entire configuration dictionary.
-
-        :return: The configuration dictionary.
-        """
-        return self.config

@@ -90,7 +90,7 @@ the **first** entry whose `trackers` list contains a substring of any of the tor
 Non-private torrents fall back to the special `"public"` entry. Per-entry keys consumed by the logic:
 `throttle` / `throttle_dl` (KiB/s upload caps, applied seeding vs. downloading), `delete` (age in days
 before deletion eligibility), `autobrr_delete` (override for autobrr-tagged torrents), `keep_last`
-(preserve N newest <10GB non-cross-seed torrents for bonus points), `polite` (seed longer if seeders <
+(preserve N oldest <10GB non-cross-seed torrents for bonus points), `polite` (seed longer if seeders <
 this). See `example_trackers.json`.
 
 ### Global singletons
@@ -110,6 +110,5 @@ normalizes every path with a trailing slash — keep using it when comparing pat
 ## Notes
 
 - `src/` is a package (imported as `from src...`); run the script from the repo root so imports resolve.
-- `junkyard/` contains old standalone experiments — not imported by the main script; ignore unless asked.
 - Deletion operations export a `.torrent` backup to `backup_destination` before removing; auto-delete
   uses `delete_files=False` and relies on the orphan-cleanup pass to reclaim disk.

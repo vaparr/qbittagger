@@ -7,8 +7,6 @@ from urllib.parse import urlparse
 from . import util
 
 class UpdateState(Flag):
-    TAG_ADD = auto()
-    TAG_REMOVE = auto()
     UPLOAD_LIMIT = auto()
     CATEGORY_REMOVE = auto()
     CATEGORY_SET = auto()
@@ -53,7 +51,6 @@ class TorrentInfo:
     # static variables
     ContentPath_Dict = defaultdict(list)
     Stat_Cache = {}
-    Stat_Cache_Hits = 0
 
     def __init__(self, torrent_dict, torrent_files, torrent_trackers, tracker_options):
 
@@ -114,14 +111,10 @@ class TorrentInfo:
             "infohash not found",
             "tracker inactive",
             "invalid infohash",
-            "unregistered torrent",
         ]
-        self.is_unregistered = False
-        for tracker in self.torrent_trackers:
-            msg = tracker["msg"].lower()
-            if any(keyword in msg for keyword in unregistered_keywords):
-                self.is_unregistered = True
-                break
+        self.is_unregistered = any(
+            keyword in tracker["msg"].lower() for tracker in self.torrent_trackers for keyword in unregistered_keywords
+        )
 
         # Find the first matching tracker for the torrent
         self.tracker_opts = None
@@ -154,9 +147,7 @@ class TorrentInfo:
             })
 
         # Is rarred?
-        self.is_rarred = False
-        if any(file.name.endswith(".rar") for file in self.torrent_files):
-            self.is_rarred = True
+        self.is_rarred = any(file.name.endswith(".rar") for file in self.torrent_files)
 
         # Is dangerous?
         banned_extensions = util.Config_Manager.get('banned_extensions')
@@ -171,15 +162,8 @@ class TorrentInfo:
         )
         self.update_category = None
 
-        # Has multiple files?
-        self.is_multi_file = False
-        if self.torrent_files:
-            self.is_multi_file = len(self.torrent_files) > 1
-
-        # Season pack?
-        self.is_season_pack = False
-        if self.is_multi_file:
-            self.is_season_pack = self.check_season_pack(self._name)
+        # Season pack? Only multi-file torrents qualify.
+        self.is_season_pack = len(self.torrent_files) > 1 and self.check_season_pack(self._name)
 
         # How many seeders? It's polite to seed if there's less seeders than polite value in config.
         politeness = self.tracker_opts.get("polite", 0) if self.tracker_opts is not None else 0
@@ -198,13 +182,9 @@ class TorrentInfo:
         self.save_path_host = util.format_path(save_path)
 
         # Detect hardlinks, if enabled
-        self.is_hardlinked = False
-        if util.Config_Manager.get('options')['tag_hardlink'] and self.torrent_files:
-            for file in self.torrent_files:
-                filename = os.path.join(self.save_path_host, file['name'])
-                if self.is_hard_link(filename):
-                    self.is_hardlinked = True
-                    break
+        self.is_hardlinked = util.Config_Manager.get('options')['tag_hardlink'] and any(
+            self.is_hard_link(os.path.join(self.save_path_host, file['name'])) for file in self.torrent_files
+        )
 
     def has_extension(self, extensions):
         extensions = tuple(ext.lower() for ext in extensions or [])
@@ -215,7 +195,6 @@ class TorrentInfo:
         # Check if filename is already cached
         if filename in TorrentInfo.Stat_Cache:
             stat_result = TorrentInfo.Stat_Cache[filename]
-            TorrentInfo.Stat_Cache_Hits += 1
         else:
             try:
                 # Perform os.stat and cache the result
@@ -243,34 +222,25 @@ class TorrentInfo:
         if any(re.search(pattern, torrent_name, re.IGNORECASE) for pattern in season_pack_patterns):
             return True
 
-        # print(self._hash)
         return None  # Could not determine
 
     def torrent_add_tag(self, tag):
         # Add the tag only if it's not in current tags and not already scheduled for adding
         if tag not in self.current_tags and tag not in self.update_tags_add:
-            self.update_tags_add.append(tag)  # Using set for efficient lookups
-            self.update_state |= UpdateState.TAG_ADD
+            self.update_tags_add.append(tag)
 
         # Remove it from the removal list if it was marked for removal
         if tag in self.update_tags_remove:
             self.update_tags_remove.remove(tag)
-            # Check if there are no more tags left to remove and clear TAG_REMOVE flag
-            if not self.update_tags_remove:
-                self.update_state &= ~UpdateState.TAG_REMOVE
 
     def torrent_remove_tag(self, tag):
         # Remove the tag only if it's in current tags and not already scheduled for removal
         if tag in self.current_tags and tag not in self.update_tags_remove:
             self.update_tags_remove.append(tag)
-            self.update_state |= UpdateState.TAG_REMOVE
 
         # Remove it from the add list if it was scheduled to be added
         if tag in self.update_tags_add:
-            self.update_tags_add.remove(tag)  # Remove tag from tags_add
-            # Check if there are no more tags left to add and clear TAG_ADD flag
-            if not self.update_tags_add:
-                self.update_state &= ~UpdateState.TAG_ADD
+            self.update_tags_add.remove(tag)
 
     def torrent_remove_category(self):
 

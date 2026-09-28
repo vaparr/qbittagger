@@ -1,5 +1,5 @@
 qbittorrent-api
-argparse
+requests
 colorama
 tqdm
 pyyaml

@@ -5,7 +5,7 @@ import shutil
 import threading
 import concurrent.futures
 
-from colorama import Fore, Back, Style, init
+from colorama import Fore, init
 from tqdm import tqdm
 from collections import defaultdict
 
@@ -20,19 +20,20 @@ class TorrentManager:
         self.server = util.Config_Manager.get("server")
         self.port = util.Config_Manager.get("port")
         self.dry_run = dry_run
-        self.no_color = no_color
+
+        # Output is always colored; with no_color, colorama strips the ANSI codes from stdout/stderr.
+        init(strip=no_color)
 
         # dict to store torrents
-        self.torrent_info_list = defaultdict(list)
+        self.torrent_info_list = {}
         self.torrent_tag_hashes_list = defaultdict(list)
 
         # connect to qb
-        self.qb = self.connect_to_qb(self.server, self.port)
+        self.qb = self.connect_to_qb()
 
         # tracker config
         tracker_json_path = util.Config_Manager.get("tracker_config")
-        if tracker_json_path:
-            self.tracker_options = util.load_trackers(tracker_json_path)
+        self.tracker_options = util.load_trackers(tracker_json_path) if tracker_json_path else []
 
     def get_torrents(self):
 
@@ -116,9 +117,9 @@ class TorrentManager:
             return
 
         msg = f"WARNING: {len(unmatched)} tracker host(s) have no entry in trackers.json. These torrents were left untagged - add them to trackers.json (or define a 'public' entry):"
-        print(f"\n{msg}" if self.no_color else f"\n{Fore.YELLOW}{msg}{Fore.RESET}")
+        print(f"\n{Fore.YELLOW}{msg}{Fore.RESET}")
         for host, example_name in sorted(unmatched.items()):
-            print(f"  - {host if self.no_color else f'{Fore.YELLOW}{host}{Fore.RESET}'}  (e.g. {example_name})")
+            print(f"  - {Fore.YELLOW}{host}{Fore.RESET}  (e.g. {example_name})")
             print()
 
     def analyze_torrents(self):
@@ -128,7 +129,6 @@ class TorrentManager:
         # torrents past their delete threshold, collected during pass 1 and given
         # keep_last protection afterwards (see apply_keep_last)
         self._keep_last_eligible = []
-        # for torrent_info in self.torrent_info_list.values():
         for torrent_info in tqdm(self.torrent_info_list.values(), desc="Processing torrents (first pass)", unit=" torrent", ncols=120):
             self.analyze_torrent(torrent_info)
 
@@ -136,7 +136,6 @@ class TorrentManager:
         self.apply_keep_last()
 
         # set torrentinfo props, separate loop to make sure cross-seed orphans are set properly
-        # for torrent_info in self.torrent_info_list.values():
         for torrent_info in tqdm(self.torrent_info_list.values(), desc="Processing torrents (second pass)", unit=" torrent", ncols=120):
             self.set_torrent_info(torrent_info)
 
@@ -146,24 +145,18 @@ class TorrentManager:
         print(f"\n=== Update torrents ===\n")
         for torrent_info in self.torrent_info_list.values():
 
-            if torrent_info.update_state == UpdateState(0):
+            if not (torrent_info.update_state or torrent_info.update_tags_add or torrent_info.update_tags_remove):
                 continue
 
             i = i + 1
-            if self.no_color:
-                print(f"++ Updating [{torrent_info.tracker_name}] torrent {torrent_info._name} ({torrent_info._hash})")
-            else:
-                print(f"++ Updating [{Fore.MAGENTA}{torrent_info.tracker_name}{Fore.RESET}] torrent {Fore.YELLOW}{torrent_info._name}{Fore.RESET} ({Fore.CYAN}{torrent_info._hash}{Fore.RESET})")
+            print(f"++ Updating [{Fore.MAGENTA}{torrent_info.tracker_name}{Fore.RESET}] torrent {Fore.YELLOW}{torrent_info._name}{Fore.RESET} ({Fore.CYAN}{torrent_info._hash}{Fore.RESET})")
 
-            # add tags
-            if UpdateState.TAG_ADD in torrent_info.update_state:
+            if torrent_info.update_tags_add:
                 self.qb_add_tag(torrent_info)
 
-            # remove tags
-            if UpdateState.TAG_REMOVE in torrent_info.update_state:
+            if torrent_info.update_tags_remove:
                 self.qb_remove_tag(torrent_info)
 
-            # set upload limit
             if UpdateState.UPLOAD_LIMIT in torrent_info.update_state:
                 self.qb_set_upload_limit(torrent_info)
 
@@ -173,10 +166,7 @@ class TorrentManager:
             if UpdateState.CATEGORY_SET in torrent_info.update_state:
                 self.qb_set_category(torrent_info)
 
-        if i > 0:
-            print(f"\nProcessed {len(self.torrent_info_list)} torrents and updated {i} torrents.")
-        else:
-            print(f"Processed {len(self.torrent_info_list)} torrents and updated {i} torrents.")
+        print(f"{chr(10) if i else ''}Processed {len(self.torrent_info_list)} torrents and updated {i} torrents.")
 
     def build_tag_to_hashes(self):
 
@@ -221,24 +211,22 @@ class TorrentManager:
             torrent_info.torrent_add_tag(TagNames.PTP_ARCHIVE.value)
             torrent_info.torrent_remove_tag(torrent_info.tracker_name)
 
-        # Cross-seeded, orphaned peers
-        if torrent_info.cross_seed_state == CrossSeedState.PEER:
-            hasParent = False
-            for cross_hash in torrent_info.cross_seed_hashes:
-                if self.torrent_info_list[cross_hash].cross_seed_state == CrossSeedState.PARENT:
-                    hasParent = True
-                    break
-            if not hasParent:
-                torrent_info.cross_seed_state = CrossSeedState.ORPHAN
+        # Cross-seeded peers with no parent left are orphans
+        if torrent_info.cross_seed_state == CrossSeedState.PEER and not any(
+            self.torrent_info_list[cross_hash].cross_seed_state == CrossSeedState.PARENT for cross_hash in torrent_info.cross_seed_hashes
+        ):
+            torrent_info.cross_seed_state = CrossSeedState.ORPHAN
 
         # update cross-seed tags
-        self.update_cross_seed_tags(torrent_info)
+        cs_all_tag = TagNames.CROSS_SEED_ALL.value
+        torrent_info.torrent_add_tag(cs_all_tag) if torrent_info.cross_seed_state != CrossSeedState.NONE else torrent_info.torrent_remove_tag(cs_all_tag)
+        self.set_state_tags(torrent_info, CrossSeedState, torrent_info.cross_seed_state)
 
         # update delete tags
         if not torrent_info.torrent_trackers_filtered:
             torrent_info.delete_state = DeleteState.DELETE_NOW
             torrent_info.torrent_remove_category()
-        self.update_delete_tags(torrent_info)
+        self.set_state_tags(torrent_info, DeleteState, torrent_info.delete_state)
 
         # Remove category if we are in an error state. Allows sonarr and radarr to give up.
         if torrent_info.is_tracker_error or torrent_info.is_unregistered:
@@ -256,39 +244,11 @@ class TorrentManager:
         if torrent_info.is_arr_banned:
             torrent_info.torrent_set_category(torrent_info.category + DANGEROUS_CATEGORY_SUFFIX)
 
+    def set_state_tags(self, torrent_info, state_enum, current):
 
-    def update_cross_seed_tags(self, torrent_info):
-
-        # _cs_all tag
-        cs_all_tag = TagNames.CROSS_SEED_ALL.value
-        torrent_info.torrent_add_tag(cs_all_tag) if torrent_info.cross_seed_state != CrossSeedState.NONE else torrent_info.torrent_remove_tag(cs_all_tag)
-
-        # First, check for NONE and remove all cross-seed tags
-        if torrent_info.cross_seed_state == CrossSeedState.NONE:
-            for state in CrossSeedState:
-                if state != CrossSeedState.NONE:  # Remove all other tags if state is NONE
-                    torrent_info.torrent_remove_tag(state.value)
-            return  # Exit after handling NONE
-
-        # For other states, add the corresponding tag
-        for state in CrossSeedState:
-            if torrent_info.cross_seed_state == state:
-                torrent_info.torrent_add_tag(state.value)
-            else:
-                torrent_info.torrent_remove_tag(state.value)
-
-    def update_delete_tags(self, torrent_info):
-
-        # Special case for NONE
-        if torrent_info.delete_state == DeleteState.NONE:
-            for state in DeleteState:
-                if state != DeleteState.NONE:
-                    torrent_info.torrent_remove_tag(state.value)
-            return  # Exit after handling NONE
-
-        # For other states, add the corresponding tag
-        for state in DeleteState:
-            if torrent_info.delete_state == state:
+        # Tag the current state (NONE gets no tag) and clear every sibling state's tag
+        for state in state_enum:
+            if state == current and state != state_enum.NONE:
                 torrent_info.torrent_add_tag(state.value)
             else:
                 torrent_info.torrent_remove_tag(state.value)
@@ -358,34 +318,24 @@ class TorrentManager:
                     self.torrent_info_list[cross_hash].delete_state = DeleteState.NEVER
                 return
 
-        if tracker_delete_days > 0 and torrent_info.torrent_completed_since_days > tracker_delete_days:
+        if not (tracker_delete_days > 0 and torrent_info.torrent_completed_since_days > tracker_delete_days):
+            return
 
-            # Not cross-seeded
-            if torrent_info.cross_seed_state == CrossSeedState.NONE:
-                if torrent_info.has_autobrr_tag and torrent_info.is_private:
-                    torrent_info.delete_state = DeleteState.DELETE_IF_NEEDED if torrent_info.is_polite_to_seed else DeleteState.AUTOBRR_DELETE
-                elif torrent_info.has_hardlink_tag and torrent_info.is_private:
-                    torrent_info.delete_state = DeleteState.HARDLINK_DELETE
-                elif not torrent_info.has_hardlink_tag and torrent_info.is_private:
-                    torrent_info.delete_state = DeleteState.NO_HARDLINK_DELETE
-                else:
-                    torrent_info.delete_state = DeleteState.DELETE_IF_NEEDED if torrent_info.is_polite_to_seed else DeleteState.READY
+        # Not cross-seeded: decide for this torrent. Parent: its state decides for all its cross-seeds.
+        if torrent_info.cross_seed_state == CrossSeedState.NONE:
+            targets = [torrent_info]
+        elif torrent_info.cross_seed_state == CrossSeedState.PARENT:
+            targets = [self.torrent_info_list[cross_hash] for cross_hash in torrent_info.cross_seed_hashes]
+        else:
+            return
 
-            # Cross-seeded, decide based on parent's state
-            if torrent_info.cross_seed_state == CrossSeedState.PARENT:
-
-                if torrent_info.has_autobrr_tag and torrent_info.is_private:
-                    for cross_hash in torrent_info.cross_seed_hashes:
-                        self.torrent_info_list[cross_hash].delete_state = DeleteState.DELETE_IF_NEEDED if self.torrent_info_list[cross_hash].is_polite_to_seed else DeleteState.AUTOBRR_DELETE
-                elif torrent_info.has_hardlink_tag and torrent_info.is_private:
-                    for cross_hash in torrent_info.cross_seed_hashes:
-                        self.torrent_info_list[cross_hash].delete_state = DeleteState.HARDLINK_DELETE
-                elif not torrent_info.has_hardlink_tag and torrent_info.is_private:
-                    for cross_hash in torrent_info.cross_seed_hashes:
-                        self.torrent_info_list[cross_hash].delete_state = DeleteState.NO_HARDLINK_DELETE
-                else:
-                    for cross_hash in torrent_info.cross_seed_hashes:
-                        self.torrent_info_list[cross_hash].delete_state = DeleteState.DELETE_IF_NEEDED if self.torrent_info_list[cross_hash].is_polite_to_seed else DeleteState.READY
+        for target in targets:
+            if torrent_info.has_autobrr_tag and torrent_info.is_private:
+                target.delete_state = DeleteState.DELETE_IF_NEEDED if target.is_polite_to_seed else DeleteState.AUTOBRR_DELETE
+            elif torrent_info.is_private:
+                target.delete_state = DeleteState.HARDLINK_DELETE if torrent_info.has_hardlink_tag else DeleteState.NO_HARDLINK_DELETE
+            else:
+                target.delete_state = DeleteState.DELETE_IF_NEEDED if target.is_polite_to_seed else DeleteState.READY
 
     def apply_keep_last(self):
         # Preserve keep_last number of torrents per tracker, if set. Useful for bonus points.
@@ -434,40 +384,30 @@ class TorrentManager:
             client_kwargs["password"] = password
         return qbittorrentapi.Client(**client_kwargs)
 
-    def connect_to_qb(self, server, port) -> qbittorrentapi.Client:
+    def connect_to_qb(self) -> qbittorrentapi.Client:
         try:
-            if self.no_color:
-                print(f"\nConnecting to: {server}:{port}")
-            else:
-                print(f"\nConnecting to: {Fore.GREEN}{server}:{port}{Fore.RESET}")
+            print(f"\nConnecting to: {Fore.GREEN}{self.server}:{self.port}{Fore.RESET}")
             qb = self._build_client()
             # Accessing qb.app.version forces the lazy login, so bad credentials or an
             # unreachable host fail here with a clear message rather than mid-run.
-            if self.no_color:
-                print(f"qBittorrent: {qb.app.version}")
-            else:
-                print(f"qBittorrent: {Fore.GREEN}{qb.app.version}{Fore.RESET}")
-            # for k, v in qb.app.build_info.items():
-            #     print(f" -- {k}: {v}")
+            print(f"qBittorrent: {Fore.GREEN}{qb.app.version}{Fore.RESET}")
             return qb
         except Exception as e:
-            print(f"ERROR: Failed to connect to qBittorrent at {server}:{port}: {e}")
+            print(f"ERROR: Failed to connect to qBittorrent at {self.server}:{self.port}: {e}")
             sys.exit(1)
-
-
 
     def qb_add_tag(self, torrent_info: TorrentInfo):
 
         torrent_hash = torrent_info._hash
-        for tag in torrent_info.update_tags_add:
-            try:
-                if self.dry_run:
-                    print(f"  [DRY RUN] Will add tag '{tag if self.no_color else f'{Fore.GREEN}{tag}{Fore.RESET}'}' to torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
-                else:
-                    self.qb.torrents_add_tags(tag, torrent_hash)
-                    print(f"  Adding tag '{tag if self.no_color else f'{Fore.GREEN}{tag}{Fore.RESET}'}' to torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
-            except Exception as e:
-                print(f"  Failed to set tag '{tag}' for {torrent_hash}: {e}")
+        tags = torrent_info.update_tags_add
+        for tag in tags:
+            print(f"  {'[DRY RUN] Will add' if self.dry_run else 'Adding'} tag '{Fore.GREEN}{tag}{Fore.RESET}' to torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+        if self.dry_run:
+            return
+        try:
+            self.qb.torrents_add_tags(tags=tags, torrent_hashes=torrent_hash)
+        except Exception as e:
+            print(f"  Failed to set tags {tags} for {torrent_hash}: {e}")
 
     def qb_remove_category(self, torrent_info: TorrentInfo):
 
@@ -475,9 +415,9 @@ class TorrentManager:
         torrent_hash = torrent_info._hash
         try:
             if self.dry_run:
-                print(f"  [DRY RUN] Will remove category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
+                print(f"  [DRY RUN] Will remove category '{Fore.GREEN}{category}{Fore.RESET}' from torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
             else:
-                print(f"  Removing category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
+                print(f"  Removing category '{Fore.GREEN}{category}{Fore.RESET}' from torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
                 self.qb.torrents_set_category("", torrent_hash)
         except Exception as e:
             print(f"  Failed to remove category on torrent for {torrent_hash}: {e}")
@@ -488,9 +428,9 @@ class TorrentManager:
         torrent_hash = torrent_info._hash
         try:
             if self.dry_run:
-                print(f"  [DRY RUN] Will set category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' on torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
+                print(f"  [DRY RUN] Will set category '{Fore.GREEN}{category}{Fore.RESET}' on torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
             else:
-                print(f"  Setting category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' on torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
+                print(f"  Setting category '{Fore.GREEN}{category}{Fore.RESET}' on torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
                 # qBittorrent rejects unknown categories, so create it on first use
                 if category not in self.qb.torrents_categories():
                     self.qb.torrents_create_category(name=category)
@@ -501,15 +441,15 @@ class TorrentManager:
     def qb_remove_tag(self, torrent_info: TorrentInfo):
 
         torrent_hash = torrent_info._hash
-        for tag in torrent_info.update_tags_remove:
-            try:
-                if self.dry_run:
-                    print(f"  [DRY RUN] Will remove tag '{tag if self.no_color else f'{Fore.RED}{tag}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
-                else:
-                    print(f"  Removing tag '{tag if self.no_color else f'{Fore.RED}{tag}{Fore.RESET}'}' from torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
-                    self.qb.torrents_remove_tags(tag, torrent_hash)
-            except Exception as e:
-                print(f"  Failed to remove tag '{tag}' from {torrent_hash}: {e}")
+        tags = torrent_info.update_tags_remove
+        for tag in tags:
+            print(f"  {'[DRY RUN] Will remove' if self.dry_run else 'Removing'} tag '{Fore.RED}{tag}{Fore.RESET}' from torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
+        if self.dry_run:
+            return
+        try:
+            self.qb.torrents_remove_tags(tags=tags, torrent_hashes=torrent_hash)
+        except Exception as e:
+            print(f"  Failed to remove tags {tags} from {torrent_hash}: {e}")
 
     def qb_set_upload_limit(self, torrent_info: TorrentInfo):
 
@@ -517,9 +457,9 @@ class TorrentManager:
         torrent_hash = torrent_info._hash
         try:
             if self.dry_run:
-                print(f"  [DRY RUN] Will set upload_limit to '{upload_limit if self.no_color else f'{Fore.GREEN}{upload_limit}{Fore.RESET}'}' for torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
+                print(f"  [DRY RUN] Will set upload_limit to '{Fore.GREEN}{upload_limit}{Fore.RESET}' for torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
             else:
-                print(f"  Setting upload_limit to '{upload_limit if self.no_color else f'{Fore.GREEN}{upload_limit}{Fore.RESET}'}' for torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
+                print(f"  Setting upload_limit to '{Fore.GREEN}{upload_limit}{Fore.RESET}' for torrent {Fore.CYAN}{torrent_hash}{Fore.RESET}")
                 self.qb.torrents_set_upload_limit(upload_limit, torrent_hash)
         except Exception as e:
             print(f"  Failed to set upload limit for {torrent_hash}: {e}")
@@ -584,10 +524,8 @@ class TorrentManager:
                                 moved += 1
                                 file_size = os.path.getsize(full_path)
                                 total_size += file_size
-                                if self.dry_run:
-                                    print(f"-- [DRY RUN] Will move {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} [{util.format_bytes(file_size)}] TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
-                                else:
-                                    print(f"-- MOVING {full_path if self.no_color else f'{Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET}'} [{util.format_bytes(file_size)}] TO {dest_path_parent if self.no_color else f'{Fore.CYAN}{dest_path_parent}{Fore.RESET}'}")
+                                print(f"-- {'[DRY RUN] Will move' if self.dry_run else 'MOVING'} {Fore.GREEN}{root2}{Fore.YELLOW}{file}{Fore.RESET} [{util.format_bytes(file_size)}] TO {Fore.CYAN}{dest_path_parent}{Fore.RESET}")
+                                if not self.dry_run:
                                     try:
                                         # Create destination path if it doesn't exist
                                         os.makedirs(dest_path_parent, exist_ok=True)
@@ -651,10 +589,8 @@ class TorrentManager:
                             removed += 1
                             file_size = os.path.getsize(file_path)
                             total_size += file_size
-                            if self.dry_run:
-                                print(f"-- [DRY RUN] Will remove {file_path if self.no_color else f'{Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET}'} [{util.format_bytes(file_size)}]")
-                            else:
-                                print(f"-- Removing {file_path if self.no_color else f'{Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET}'} [{util.format_bytes(file_size)}]")
+                            print(f"-- {'[DRY RUN] Will remove' if self.dry_run else 'Removing'} {Fore.GREEN}{root_print}{Fore.YELLOW}{file}{Fore.RESET} [{util.format_bytes(file_size)}]")
+                            if not self.dry_run:
                                 os.remove(file_path)
 
                     except OSError as e:
@@ -670,37 +606,26 @@ class TorrentManager:
             print(f"-- Error traversing directory {orphan_dest}: {e}")
 
     def remove_empty_dirs(self, directory):
-        dirs_removed = False  # Flag to track if any directory was removed during the current pass
 
+        # Bottom-up walk visits children before their parent, so once an empty child is removed
+        # the parent's listdir() is already empty and it goes in the same pass.
         try:
-            # Walk through directory tree from bottom-up to ensure empty directories are removed
-            for dirpath, dirnames, filenames in os.walk(directory, topdown=False):
+            for dirpath, _, _ in os.walk(directory, topdown=False):
 
-                # If the directory is the top-level directory, skip it
+                # Never remove the top-level directory itself
                 if os.path.abspath(dirpath) == os.path.abspath(directory):
-                    continue  # Skip removing the top-level directory
+                    continue
 
-                # If the directory is empty (contains no subdirectories or files)
-                if not dirnames and not filenames:
-                    try:
-                        if self.dry_run:
-                            print(f"-- [DRY RUN] Will remove empty directory {dirpath if self.no_color else f'{Fore.YELLOW}{dirpath}{Fore.RESET}'}")
-                        else:
-                            print(f"-- Removing empty directory {dirpath if self.no_color else f'{Fore.YELLOW}{dirpath}{Fore.RESET}'}")
-                            os.rmdir(dirpath)
-                            if not os.path.exists(dirpath):  # Ensure directory was actually removed
-                                dirs_removed = True  # Set flag to True only when directory is actually removed
-                    except OSError as e:
-                        print(f"-- Error removing directory {dirpath}: {e}")
-                    except Exception as e:
-                        print(f"-- Unexpected error while removing directory {dirpath}: {e}")
+                try:
+                    if os.listdir(dirpath):
+                        continue
+                    print(f"-- {'[DRY RUN] Will remove' if self.dry_run else 'Removing'} empty directory {Fore.YELLOW}{dirpath}{Fore.RESET}")
+                    if not self.dry_run:
+                        os.rmdir(dirpath)
+                except OSError as e:
+                    print(f"-- Error removing directory {dirpath}: {e}")
         except Exception as e:
             print(f"-- Error walking through directory {directory}: {e}")
-
-        # Recursively call the function if directories were removed during this pass
-        if dirs_removed:
-            self.remove_empty_dirs(directory)
-
 
     def auto_delete_torrents(self):
 
@@ -736,26 +661,20 @@ class TorrentManager:
                 total_size += torrent_size
                 formatted_size = util.format_bytes(torrent_size)
                 removed += 1
-                if self.dry_run:
-                    print(f"-- [DRY RUN] Will remove [{matching_tag if self.no_color else f'{Fore.GREEN}{matching_tag}{Fore.RESET}'}] '{torrent_name if self.no_color else f'{Fore.YELLOW}{torrent_name}{Fore.RESET}'}' ({torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}) torrent with size '{formatted_size if self.no_color else f'{Fore.GREEN}{formatted_size}{Fore.RESET}'}'")
-                else:
+                print(f"-- {'[DRY RUN] Will remove' if self.dry_run else 'Removing'} [{Fore.GREEN}{matching_tag}{Fore.RESET}] '{Fore.YELLOW}{torrent_name}{Fore.RESET}' ({Fore.CYAN}{torrent_hash}{Fore.RESET}) torrent with size '{Fore.GREEN}{formatted_size}{Fore.RESET}'")
+                if not self.dry_run:
                     # remove torrents with delete_files set to False, as orphan cleanup will take care of them.
-                    print(f"-- Removing [{matching_tag if self.no_color else f'{Fore.GREEN}{matching_tag}{Fore.RESET}'}] '{torrent_name if self.no_color else f'{Fore.YELLOW}{torrent_name}{Fore.RESET}'}' ({torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}) torrent with size '{formatted_size if self.no_color else f'{Fore.GREEN}{formatted_size}{Fore.RESET}'}'")
-                    if backup_dest:
-                        torrent_ex = self.qb.torrents_export(torrent_hash)
-                        torrent_ex_path = os.path.join(backup_dest, f"{torrent_hash}.torrent")
-                        with open(torrent_ex_path, 'wb') as f:
-                            f.write(torrent_ex)
-                        if os.path.exists(torrent_ex_path):
-                            self.qb.torrents_delete(delete_files=False, torrent_hashes=torrent_hash)
-                            removed_hashes.add(torrent_hash)
+                    torrent_ex = self.qb.torrents_export(torrent_hash)
+                    torrent_ex_path = os.path.join(backup_dest, f"{torrent_hash}.torrent")
+                    with open(torrent_ex_path, 'wb') as f:
+                        f.write(torrent_ex)
+                    if os.path.exists(torrent_ex_path):
+                        self.qb.torrents_delete(delete_files=False, torrent_hashes=torrent_hash)
+                        removed_hashes.add(torrent_hash)
 
         for hash in removed_hashes:
             del self.torrent_info_list[hash]
 
         print()
         util.Discord_Summary.append(("Auto-delete torrents", f"auto_delete_tags: *{auto_delete_tags}* \nRemoved {removed} torrents **[{util.format_bytes(total_size)}]**."))
-        if self.dry_run:
-            print(f"[DRY RUN] Total size of removed torrents [{removed}] with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")
-        else:
-            print(f"Total size of removed torrents [{removed}] with '{auto_delete_tags if self.no_color else f'{Fore.GREEN}{auto_delete_tags}{Fore.RESET}'}' tag: {util.format_bytes(total_size)}")
+        print(f"{'[DRY RUN] ' if self.dry_run else ''}Total size of removed torrents [{removed}] with '{Fore.GREEN}{auto_delete_tags}{Fore.RESET}' tag: {util.format_bytes(total_size)}")

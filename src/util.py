@@ -3,7 +3,7 @@ import os
 import time
 import requests
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 Config_Manager = None
 Current_Time = time.time()
@@ -33,7 +33,7 @@ def format_bytes(size):
         n += 1
     return f"{size:.2f} {power_labels[n]}bytes"
 
-def get_age(added_on, days_only=False):
+def get_age(added_on):
 
     # Calculate age in seconds (Current time in seconds since the epoch - added_on)
     age_in_seconds = Current_Time - added_on
@@ -42,9 +42,6 @@ def get_age(added_on, days_only=False):
     age_days = age_in_seconds // 86400  # Number of seconds in a day
     age_hours = (age_in_seconds % 86400) // 3600  # Remaining hours
     age_minutes = (age_in_seconds % 3600) // 60  # Remaining minutes
-
-    if days_only:
-        return age_days
 
     return f"{age_days} days, {age_hours} hours, {age_minutes} minutes"
 
