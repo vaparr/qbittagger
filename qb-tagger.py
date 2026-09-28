@@ -43,7 +43,7 @@ if __name__ == "__main__":
             'ptp_archive_save_path': None
         }),
         # Case-insensitive file extensions. 'dangerous' tags any torrent #_delete_malware.
-        # Both lists move sonarr*/radar* torrents to "<category>-dangerous" so the arr drops them.
+        # Both lists move torrents whose category contains sonarr/radarr to "<category>-dangerous" so the arr drops them.
         ('banned_extensions', {
             'dangerous': ['.arj', '.lnk', '.lzh', '.ps1', '.scr', '.vbs', '.zipx'],
             'executable': ['.bat', '.cmd', '.exe', '.sh']

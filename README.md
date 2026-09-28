@@ -52,7 +52,7 @@ Torrents that match nothing are listed in a warning at the end of the run.
 `banned_extensions` in `config.yaml` holds two lists of file extensions (case-insensitive):
 
 - `dangerous`: any torrent with one of these files is tagged `#_delete_malware`.
-- `executable`: together with `dangerous`, a torrent in a `sonarr*` or `radar*` category with any
+- `executable`: together with `dangerous`, a torrent whose category contains `sonarr` or `radarr` with any
   of these files is moved to `<category>-dangerous` (created if missing), so the arr stops
   tracking it.
 

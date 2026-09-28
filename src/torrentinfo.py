@@ -12,7 +12,7 @@ class UpdateState(Flag):
     CATEGORY_SET = auto()
 
 
-ARR_CATEGORY_PREFIXES = ("sonarr", "radar")  # matched case-insensitively; covers radarr-4k etc.
+ARR_CATEGORY_KEYWORDS = ("sonarr", "radarr")  # substring, case-insensitive; e.g. radarr-4k, tv-sonarr
 DANGEROUS_CATEGORY_SUFFIX = "-dangerous"  # sonarr -> sonarr-dangerous
 
 
@@ -156,7 +156,7 @@ class TorrentInfo:
         # Sonarr/Radarr grabbed a torrent carrying dangerous or executable files?
         category = self.category.lower()
         self.is_arr_banned = (
-            category.startswith(ARR_CATEGORY_PREFIXES)
+            any(keyword in category for keyword in ARR_CATEGORY_KEYWORDS)
             and not category.endswith(DANGEROUS_CATEGORY_SUFFIX)  # already quarantined
             and (self.is_dangerous or self.has_extension(banned_extensions['executable']))
         )
