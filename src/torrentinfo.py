@@ -11,6 +11,11 @@ class UpdateState(Flag):
     TAG_REMOVE = auto()
     UPLOAD_LIMIT = auto()
     CATEGORY_REMOVE = auto()
+    CATEGORY_SET = auto()
+
+
+ARR_CATEGORY_PREFIXES = ("sonarr", "radar")  # matched case-insensitively; covers radarr-4k etc.
+DANGEROUS_CATEGORY_SUFFIX = "-dangerous"  # sonarr -> sonarr-dangerous
 
 
 class CrossSeedState(Enum):
@@ -65,6 +70,7 @@ class TorrentInfo:
         self.torrent_added_since_days = util.days_since(torrent_dict.added_on)
         self.torrent_completed_since_days = util.days_since(torrent_dict.completion_on)
         self.current_tags = [t.strip() for t in torrent_dict.get("tags", "").split(",")]
+        self.category = torrent_dict.get("category", "")
 
         # torrent state
         self.delete_state = DeleteState.NONE
@@ -153,7 +159,17 @@ class TorrentInfo:
             self.is_rarred = True
 
         # Is dangerous?
-        self.is_dangerous = self.check_dangerous()
+        banned_extensions = util.Config_Manager.get('banned_extensions')
+        self.is_dangerous = self.has_extension(banned_extensions['dangerous'])
+
+        # Sonarr/Radarr grabbed a torrent carrying dangerous or executable files?
+        category = self.category.lower()
+        self.is_arr_banned = (
+            category.startswith(ARR_CATEGORY_PREFIXES)
+            and not category.endswith(DANGEROUS_CATEGORY_SUFFIX)  # already quarantined
+            and (self.is_dangerous or self.has_extension(banned_extensions['executable']))
+        )
+        self.update_category = None
 
         # Has multiple files?
         self.is_multi_file = False
@@ -190,21 +206,9 @@ class TorrentInfo:
                     self.is_hardlinked = True
                     break
 
-    def check_dangerous(self):
-        dangerous_extensions = [
-            ".arj",
-            ".lnk",
-            ".lzh",
-            ".ps1",
-            ".scr",
-            ".vbs",
-            ".zipx"
-        ]
-
-        if any(file.name.endswith(ext) for ext in dangerous_extensions for file in self.torrent_files):
-            return True
-
-        return False
+    def has_extension(self, extensions):
+        extensions = tuple(ext.lower() for ext in extensions or [])
+        return any(file.name.lower().endswith(extensions) for file in self.torrent_files)
 
 
     def is_hard_link(self, filename):
@@ -273,8 +277,14 @@ class TorrentInfo:
         if not util.Config_Manager.get('options')['remove_category_for_bad_torrents']:
             return
 
-        if (self.torrent_dict["category"]) != "" and (self.torrent_dict["category"]) != "autobrr":
+        if self.category not in ("", "autobrr") and not self.category.endswith(DANGEROUS_CATEGORY_SUFFIX):
             self.update_state |= UpdateState.CATEGORY_REMOVE
+
+    def torrent_set_category(self, category):
+        if self.category != category:
+            self.update_category = category
+            self.update_state |= UpdateState.CATEGORY_SET
+            self.update_state &= ~UpdateState.CATEGORY_REMOVE
 
     def torrent_set_upload_limit(self, tracker_entry):
         # Set default to 0 if throttle values are 0 or non-existent

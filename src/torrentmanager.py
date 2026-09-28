@@ -170,6 +170,9 @@ class TorrentManager:
             if UpdateState.CATEGORY_REMOVE in torrent_info.update_state:
                 self.qb_remove_category(torrent_info)
 
+            if UpdateState.CATEGORY_SET in torrent_info.update_state:
+                self.qb_set_category(torrent_info)
+
         if i > 0:
             print(f"\nProcessed {len(self.torrent_info_list)} torrents and updated {i} torrents.")
         else:
@@ -247,6 +250,11 @@ class TorrentManager:
             hl_tag_remove = TagNames.NO_HARDLINK.value if torrent_info.is_hardlinked else TagNames.HARDLINK.value
             torrent_info.torrent_add_tag(hl_tag_add)
             torrent_info.torrent_remove_tag(hl_tag_remove)
+
+        # Sonarr/Radarr torrent with dangerous/executable files: move it out of the arr's category
+        # so the arr stops tracking it. Runs last so the category set wins over any removal above.
+        if torrent_info.is_arr_banned:
+            torrent_info.torrent_set_category(torrent_info.category + DANGEROUS_CATEGORY_SUFFIX)
 
 
     def update_cross_seed_tags(self, torrent_info):
@@ -463,7 +471,7 @@ class TorrentManager:
 
     def qb_remove_category(self, torrent_info: TorrentInfo):
 
-        category = torrent_info.torrent_dict["category"]
+        category = torrent_info.category
         torrent_hash = torrent_info._hash
         try:
             if self.dry_run:
@@ -473,6 +481,22 @@ class TorrentManager:
                 self.qb.torrents_set_category("", torrent_hash)
         except Exception as e:
             print(f"  Failed to remove category on torrent for {torrent_hash}: {e}")
+
+    def qb_set_category(self, torrent_info: TorrentInfo):
+
+        category = torrent_info.update_category
+        torrent_hash = torrent_info._hash
+        try:
+            if self.dry_run:
+                print(f"  [DRY RUN] Will set category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' on torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
+            else:
+                print(f"  Setting category '{category if self.no_color else f'{Fore.GREEN}{category}{Fore.RESET}'}' on torrent {torrent_hash if self.no_color else f'{Fore.CYAN}{torrent_hash}{Fore.RESET}'}")
+                # qBittorrent rejects unknown categories, so create it on first use
+                if category not in self.qb.torrents_categories():
+                    self.qb.torrents_create_category(name=category)
+                self.qb.torrents_set_category(category, torrent_hash)
+        except Exception as e:
+            print(f"  Failed to set category on torrent for {torrent_hash}: {e}")
 
     def qb_remove_tag(self, torrent_info: TorrentInfo):
 
